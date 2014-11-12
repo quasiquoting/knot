@@ -16,36 +16,28 @@
 
 
 grab_until(Input, Sentry) ->
-    grab_until(Input, Sentry, [], []).
+    grab_until(Input, Sentry, []).
 
-grab_until(Input, Sentry, Options) ->
-    grab_until(Input, Sentry, Options, []).
-
-grab_until([], _Sentry, _Options, Acc) ->
+grab_until("", _Sentry, Acc) ->
     {lists:reverse(Acc), ""};
-grab_until(Input, Sentry, Options, Acc) ->
+grab_until(Input, Sentry, Acc) ->
     Sentry_length = string:len(Sentry),
     Input_window = string:substr(Input, 1, Sentry_length),
     case string:equal(Input_window, Sentry) of
         true ->
-            case lists:member(grab_sentry, Options) of
-                true ->
-                    {lists:reverse(Acc) ++ Sentry, string:substr(Input, Sentry_length + 1)};
-                false ->
-                    {lists:reverse(Acc), Input}
-            end;
+            {lists:reverse(Acc), string:substr(Input, Sentry_length + 1)};
         false ->
             [Char | Rest_of_input] = Input,
-            grab_until(Rest_of_input, Sentry, Options, [Char | Acc])
+            grab_until(Rest_of_input, Sentry, [Char | Acc])
     end.
 
 -ifdef(TEST).
 split_test() ->
-    {"abcd", "<efgh"} = grab_until("abcd<efgh", "<"),
+    {"abcd", "efgh"} = grab_until("abcd<efgh", "<"),
     % Extract a documentation chunk.
-    {"foobar\n", "<<tag>>=\ncode chunk\n>>bazbuzz"} = grab_until("foobar\n<<tag>>=\ncode chunk\n>>bazbuzz", "<<"),
+    {"foobar\n", "tag>>=\ncode chunk\n>>bazbuzz"} = grab_until("foobar\n<<tag>>=\ncode chunk\n>>bazbuzz", "<<"),
     % Extract a code chunk.
-    {"<<tag>>=\ncode chunk\n>>", "bazbuzz"} = grab_until("<<tag>>=\ncode chunk\n>>bazbuzz", "\n>>", [grab_sentry]),
+    {"tag>>=\ncode chunk", "bazbuzz"} = grab_until("tag>>=\ncode chunk\n>>bazbuzz", "\n>>"),
     % Extract next documentation chunk.
     {"bazbuzz", ""} = grab_until("bazbuzz", "<<").
 -endif.
@@ -53,13 +45,8 @@ split_test() ->
 
 % The grab_until implementation takes an input string, and a sentry. It returns
 % a two-element tuple with the section of the input up until the sentry (or
-% "" when it's the end of the input). If the grab_sentry option is provided,
-% the sentry is included in the grabbed section.
-%
-% grab_until(string(), string(), Options) -> {string(), string()} | {string(), ""}.
-%
-%     Options = [option()]
-%     option() = grab_sentry
+% "" when it's the end of the input) and the rest of the input after the
+% sentry. The sentry is consumed.
 
 
 % A literate program is alternating documentation blocks and code blocks. Let
@@ -90,19 +77,19 @@ get_markup_block(Input, Code_start) ->
 
 
 get_code_block(Input, Code_end) ->
-    {Block, Rest} = grab_until(Input, Code_end, [grab_sentry]),
+    {Block, Rest} = grab_until(Input, Code_end),
     {{code, Block}, Rest}.
 
 
 -ifdef(TEST).
 get_markup_block_test() ->
     {{markup, "This document only has markup."}, ""} = get_markup_block("This document only has markup.", "<<"),
-    {{markup, "This has a little more.\n"}, "<<tag>>=\ncode\n>>"} = get_markup_block("This has a little more.\n<<tag>>=\ncode\n>>", "<<"),
-    {{markup, ""}, "<<tag>>=\ncode\n>>"} = get_markup_block("<<tag>>=\ncode\n>>", "<<").
+    {{markup, "This has a little more.\n"}, "tag>>=\ncode\n>>"} = get_markup_block("This has a little more.\n<<tag>>=\ncode\n>>", "<<"),
+    {{markup, ""}, "tag>>=\ncode\n>>"} = get_markup_block("<<tag>>=\ncode\n>>", "<<").
 
 get_code_block_test() ->
-    {{code, "<<tag>>=\nonly code\n>>"}, ""} = get_code_block("<<tag>>=\nonly code\n>>", "\n>>"),
-    {{code, "<<tag>>=\nmore code\n>>"}, "\nThat's some code."} = get_code_block("<<tag>>=\nmore code\n>>\nThat's some code.", "\n>>").
+    {{code, "tag>>=\nonly code"}, ""} = get_code_block("tag>>=\nonly code\n>>", "\n>>"),
+    {{code, "tag>>=\nmore code"}, "\nThat's some code."} = get_code_block("tag>>=\nmore code\n>>\nThat's some code.", "\n>>").
 
 get_blocks_test() ->
     Input = "Hello, world.\n"
@@ -111,7 +98,7 @@ get_blocks_test() ->
             ">>\n"
             "Goodbye, world.\n",
     [{markup, "Hello, world."},
-     {code, "\n<<mycode>>=\nprint(\"Hello, world.\")\n>>\n"},
+     {code, "mycode>>=\nprint(\"Hello, world.\")"},
      {markup, "Goodbye, world.\n"}] = get_blocks(Input, "\n<<", "\n>>\n").
 -endif.
 
