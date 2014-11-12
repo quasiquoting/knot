@@ -53,32 +53,33 @@ split_test() ->
 % us convert the input into this most basic division.
 
 
-get_blocks(Input, Code_start, Code_end) ->
+get_blocks(Input, Code_tag_start, Code_tag_end, Code_end) ->
     % Start off with a markup block.
-    {Block, Rest} = get_markup_block(Input, Code_start),
-    get_blocks(Rest, Code_start, Code_end, [Block]).
+    {Block, Rest} = get_markup_block(Input, Code_tag_start),
+    get_blocks(Rest, Code_tag_start, Code_tag_end, Code_end, [Block]).
 
 
-get_blocks("", _Code_start, _Code_end, Acc) ->
+get_blocks("", _Code_tag_start, _Code_tag_end, _Code_end, Acc) ->
     lists:reverse(Acc);
-get_blocks(Input, Code_start, Code_end, [{markup, Markup_block} | Acc]) ->
+get_blocks(Input, Code_tag_start, Code_tag_end, Code_end, [{markup, Markup_block} | Acc]) ->
     % The most recent block was a markup block, so get a code block.
-    {Code_block, Rest} = get_code_block(Input, Code_end),
-    get_blocks(Rest, Code_start, Code_end, [Code_block, {markup, Markup_block} | Acc]);
-get_blocks(Input, Code_start, Code_end, [{code, Code_block} | Acc]) ->
+    {Code_block, Rest} = get_code_block(Input, Code_tag_end, Code_end),
+    get_blocks(Rest, Code_tag_start, Code_tag_end, Code_end, [Code_block, {markup, Markup_block} | Acc]);
+get_blocks(Input, Code_tag_start, Code_tag_end, Code_end, [{code, Code_tag, Code_block} | Acc]) ->
     % The most recent block was a code block, so get a markup block.
-    {Markup_block, Rest} = get_markup_block(Input, Code_start),
-    get_blocks(Rest, Code_start, Code_end, [Markup_block, {code, Code_block} | Acc]).
+    {Markup_block, Rest} = get_markup_block(Input, Code_tag_start),
+    get_blocks(Rest, Code_tag_start, Code_tag_end, Code_end, [Markup_block, {code, Code_tag, Code_block} | Acc]).
 
 
-get_markup_block(Input, Code_start) ->
-    {Block, Rest} = grab_until(Input, Code_start),
+get_markup_block(Input, Code_tag_start) ->
+    {Block, Rest} = grab_until(Input, Code_tag_start),
     {{markup, Block}, Rest}.
 
 
-get_code_block(Input, Code_end) ->
-    {Block, Rest} = grab_until(Input, Code_end),
-    {{code, Block}, Rest}.
+get_code_block(Input, Code_tag_end, Code_end) ->
+    {Tag, Rest} = grab_until(Input, Code_tag_end),
+    {Code, Rest1} = grab_until(Rest, Code_end),
+    {{code, Tag, Code}, Rest1}.
 
 
 -ifdef(TEST).
@@ -88,18 +89,19 @@ get_markup_block_test() ->
     {{markup, ""}, "tag>>=\ncode\n>>"} = get_markup_block("<<tag>>=\ncode\n>>", "<<").
 
 get_code_block_test() ->
-    {{code, "tag>>=\nonly code"}, ""} = get_code_block("tag>>=\nonly code\n>>", "\n>>"),
-    {{code, "tag>>=\nmore code"}, "\nThat's some code."} = get_code_block("tag>>=\nmore code\n>>\nThat's some code.", "\n>>").
+    {{code, "tag", "only code"}, ""} = get_code_block("tag>>=\nonly code\n>>", ">>=\n", "\n>>"),
+    {{code, "tag", "more code"}, "\nThat's some code."} = get_code_block("tag>>=\nmore code\n>>\nThat's some code.", ">>=\n", "\n>>").
 
 get_blocks_test() ->
+    get_blocks("Goodbye, world.\n", "\n<<", ">>=\n", "\n>>\n", [{code,"mycode","print(\"Hello, world.\")"},{markup,"Hello, world."}]),
     Input = "Hello, world.\n"
             "<<mycode>>=\n"
             "print(\"Hello, world.\")\n"
             ">>\n"
             "Goodbye, world.\n",
     [{markup, "Hello, world."},
-     {code, "mycode>>=\nprint(\"Hello, world.\")"},
-     {markup, "Goodbye, world.\n"}] = get_blocks(Input, "\n<<", "\n>>\n").
+     {code, "mycode", "print(\"Hello, world.\")"},
+     {markup, "Goodbye, world.\n"}] = get_blocks(Input, "\n<<", ">>=\n", "\n>>\n").
 -endif.
 
 
@@ -130,34 +132,14 @@ strip_markup([], Acc) ->
 strip_markup([{markup, _Text} | Rest], Acc) ->
     strip_markup(Rest, Acc);
 
-strip_markup([{code, Text} | Rest], Acc) ->
-    strip_markup(Rest, [{code1, Text} | Acc]).
+strip_markup([{code, Tag, Text} | Rest], Acc) ->
+    strip_markup(Rest, [{code1, Tag, Text} | Acc]).
 
 -ifdef(TEST).
 strip_markup_test() ->
-    [{code1, "1"}, {code1, "2"}] = strip_markup([
+    [{code1, "tag", "1"}, {code1, "tag", "2"}] = strip_markup([
         {markup, "a"},
-        {code, "1"},
+        {code, "tag", "1"},
         {markup, "b"},
-        {code, "2"}]).
--endif.
-
-
-% Let us trim whitespace from code blocks, too.
-
-
-trim_white_space(Code_blocks) ->
-    trim_white_space(Code_blocks, []).
-
-trim_white_space([], Acc) ->
-    lists:reverse(Acc);
-
-trim_white_space([{code1, Text} | Rest], Acc) ->
-    Leading = re:replace(Text, "^\\s+", "", [global, {return, list}]),
-    Trailing = re:replace(Leading, "\\s+$", "", [global, {return, list}]),
-    trim_white_space(Rest, [{code2, Trailing} | Acc]).
-
--ifdef(TEST).
-trim_white_space_test() ->
-    [{code2, "1"}, {code2, "2"}] = trim_white_space([{code1, "\n  \r    \t1\n  "}, {code1, "    2\n"}]).
+        {code, "tag", "2"}]).
 -endif.
