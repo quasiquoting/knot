@@ -110,6 +110,11 @@ get_blocks_test() ->
 % on the format of our literate documents -- they must start with a markup
 % block. However, I think this depends on what is used as a sentry for code
 % blocks. This might be crappy.
+%
+% This function emits a list of {markup, Markup} and {code, Tag, Code}.
+%     Markup = string()
+%     Tag = string()
+%     Code = string()
 
 % In Joe Armstrong's EWEB implementation, he goes through several passes over
 % the code blocks to provide various things (like line numbering). In it he
@@ -143,3 +148,185 @@ strip_markup_test() ->
         {markup, "b"},
         {code, "tag", "2"}]).
 -endif.
+
+
+% Code with the same tag should be concatenated.
+
+concat_code(Blocks) ->
+    concat_code(Blocks, #{}).
+
+concat_code([], Map) ->
+    Map;
+
+concat_code([{code1, Tag, Code} | Rest], Map) ->
+    case maps:is_key(Tag, Map) of
+        true ->
+            concat_code(Rest, maps:update(Tag, string:join([maps:get(Tag, Map), Code], "\n"), Map));
+        _ ->
+            concat_code(Rest, maps:put(Tag, Code, Map))
+    end.
+
+-ifdef(TEST).
+concat_code_test() ->
+    #{"a" := "one\nthree",
+      "b" := "two"} = concat_code([{code1, "a", "one"}, {code1, "b", "two"}, {code1, "a", "three"}]).
+-endif.
+
+
+% Wait, but if we're now dealing with a map, are we losing the benefit of atoms
+% to signify a place in the code where an error is thrown? I feel like I might
+% get bogged down with this question. I'll just keep going until I understand
+% the problem.
+
+
+% Now I'll try and expand these macros. In the other literate programming tools
+% I've looked at, macros must be on their own line. They can be preceded by any
+% amount of white space and when the macro is expanded, all the lines are
+% preceded by that white space. I want to do something a little cooler. I would
+% like this:
+%
+% <<some file>>=
+% This is HTML and here is a list.
+% <ul>
+%     <li><<list elements>></li>
+% </ul>
+% >>
+%
+% <<list elements>>=
+% one
+% two
+% three
+% >>
+%
+% ...to expand to:
+%
+% This is HTML and here is a list.
+% <ul>
+%     <li>one</li>
+%     <li>two</li>
+%     <li>three</li>
+% </ul>
+%
+% The only difference is that we need to wrap the macro lines in the preceding
+% and trailing white space.
+
+grab_macro(Line, Macro_start, Macro_end) ->
+    {Possible_prefix, Rest} = grab_until(Line, Macro_start),
+    case Rest of
+        "" -> none;
+        _ ->
+            Prefix = Possible_prefix,
+            {Macro_name, Suffix} = grab_until(Rest, Macro_end),
+            {Macro_name, Prefix, Suffix}
+    end.
+
+-ifdef(TEST).
+grab_macro_test() ->
+    none = grab_macro("Nothing doing.", "<<", ">>"),
+    {"foobar", "    ", ""} = grab_macro("    <<foobar>>", "<<", ">>"),
+    {"list elements", "    <li>", "</li>"} = grab_macro("    <li><<list elements>></li>", "<<", ">>").
+-endif.
+
+
+% Given a line, grab_macro will either return the atom none or a three-tuple
+% with the macro name, line prefix, and line suffix.
+
+
+expand_macros(Block, Macros, Macro_start, Macro_end) ->
+    expand_macros(re:split(Block, "\n", [{return, list}]), Macros, Macro_start, Macro_end, []).
+
+expand_macros([], _Macros, _Macro_start, _Macro_end, Acc) ->
+    string:join(lists:reverse(Acc), "\n");
+
+expand_macros([Line | Rest], Macros, Macro_start, Macro_end, Acc) ->
+    case grab_macro(Line, Macro_start, Macro_end) of
+        none ->
+            expand_macros(Rest, Macros, Macro_start, Macro_end, [Line | Acc]);
+        {Name, Prefix, Suffix} ->
+            Macro_value = maps:get(Name, Macros),
+            Macro_lines = re:split(Macro_value, "\n", [{return, list}]),
+            Expanded_lines = Prefix ++ string:join(Macro_lines, Suffix ++ "\n" ++ Prefix) ++ Suffix,
+            expand_macros(Rest, Macros, Macro_start, Macro_end, [Expanded_lines | Acc])
+    end.
+
+-ifdef(TEST).
+expand_macros_test() ->
+    Macros = #{"list elements" => "one\ntwo\nthree",
+               "parent" => "This is HTML and here is a list.\n"
+                           "<ul>\n"
+                           "    <li><<list elements>></li>\n"
+                           "</ul>"},
+    Expected_output = "This is HTML and here is a list.\n"
+                      "<ul>\n"
+                      "    <li>one</li>\n"
+                      "    <li>two</li>\n"
+                      "    <li>three</li>\n"
+                      "</ul>",
+    Expected_output = expand_macros(maps:get("parent", Macros), Macros, "<<", ">>").
+-endif.
+
+
+% The expand_macros function takes a block and replaces macro instances with
+% the given map (which is a map of all the blocks) and returns the new block
+% value. This function doesn't currently escape macros. If the macro delimeters
+% are << and >>, then they will conflict with Erlang binaries! I must fix that,
+% but I'm not sure how yet. One option is to pick delimeters that aren't used
+% in any languages in the source document. I think that's a cop out. I'll come
+% back to this later. (TODO)
+
+
+expand_blocks(Blocks, Macro_start, Macro_end) ->
+    expand_blocks(maps:to_list(Blocks), Blocks, Macro_start, Macro_end, #{}).
+
+expand_blocks([], _Macros, _Macro_start, _Macro_end, Output_blocks) ->
+    Output_blocks;
+
+expand_blocks([{Name, Block} | Rest], Macros, Macro_start, Macro_end, Output_blocks) ->
+    New_block = expand_macros(Block, Macros, Macro_start, Macro_end),
+    expand_blocks(Rest, Macros, Macro_start, Macro_end, maps:put(Name, New_block, Output_blocks)).
+
+-ifdef(TEST).
+expand_blocks_test() ->
+    Blocks = #{"A" => "b:\n"
+                      "  <<B>>",
+               "B" => "b\nb",
+               "C" => "d:\n"
+                      "  <<D>>",
+               "D" => "d\nd",
+               "ALL" => "<<A>>\n"
+                        "<<C>>\n"},
+
+    Expected_output = #{"A" => "b:\n"
+                               "  b\n"
+                               "  b",
+                        "B" => "b\nb",
+                        "C" => "d:\n"
+                               "  d\n"
+                               "  d",
+                        "D" => "d\nd",
+                        "ALL" => "b:\n"
+                                 "  b\n"
+                                 "  b\n"
+                                 "d:\n"
+                                 "  d\n"
+                                 "  d\n"},
+
+    Expected_output = expand_blocks(expand_blocks(Blocks, "<<", ">>"), "<<", ">>").
+-endif.
+
+
+% Expand blocks runs expand_macros on every block. In the test it requires two
+% passes because A and C are nested in ALL. At some point I'll have to decide
+% how many passes to execute. That depends on expected user behavior, but, I
+% suspect I can just do it a bunch of times.
+%
+% There's some problems.
+%
+% 1. I think I'm starting to confuse the terms 'block' and 'macro'.
+% 2. Each level has to buy into Macro_start, Macro_end, etc. I think I need to
+%    define a data structure to represent the parser config. It might also be
+%    good to have another structure for the parser state -- like the lines
+%    traversed, the current column. Possibly other things I can't think of
+%    right now.
+% 3. I really don't like how I went from three-tuples to maps. I think I should
+%    use one or the other.
