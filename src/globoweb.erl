@@ -79,7 +79,8 @@ get_markup_block(Input, Code_tag_start) ->
 get_code_block(Input, Code_tag_end, Code_end) ->
     {Tag, Rest} = grab_until(Input, Code_tag_end),
     {Code, Rest1} = grab_until(Rest, Code_end),
-    {{code, Tag, Code}, Rest1}.
+    Trimmed_tag = re:replace(Tag, "^\\s+|\\s+$", "", [global, {return, list}]),
+    {{code, Trimmed_tag, Code}, Rest1}.
 
 
 -ifdef(TEST).
@@ -294,7 +295,7 @@ expand_blocks_test() ->
                       "  <<D>>",
                "D" => "d\nd",
                "ALL" => "<<A>>\n"
-                        "<<C>>\n"},
+                        "    || <<C>> ||\n"},
 
     Expected_output = #{"A" => "b:\n"
                                "  b\n"
@@ -307,9 +308,9 @@ expand_blocks_test() ->
                         "ALL" => "b:\n"
                                  "  b\n"
                                  "  b\n"
-                                 "d:\n"
-                                 "  d\n"
-                                 "  d\n"},
+                                 "    || d: ||\n"
+                                 "    ||   d ||\n"
+                                 "    ||   d ||\n"},
 
     Expected_output = expand_blocks(expand_blocks(Blocks, "<<", ">>"), "<<", ">>").
 -endif.
@@ -330,3 +331,170 @@ expand_blocks_test() ->
 %    right now.
 % 3. I really don't like how I went from three-tuples to maps. I think I should
 %    use one or the other.
+
+
+get_output_files(Blocks) ->
+    get_output_files(maps:to_list(Blocks), []).
+
+get_output_files([], Acc) ->
+    lists:reverse(Acc);
+
+get_output_files([{Tag, Block} | Rest], Acc) ->
+    case Tag of
+        [$f, $i, $l, $e, $: | File_name] ->
+            get_output_files(Rest, [{File_name, Block} | Acc]);
+        _ ->
+            get_output_files(Rest, Acc)
+    end.
+
+-ifdef(TEST).
+get_output_files_test() ->
+    [] = get_output_files(#{"A" => "a", "B" => "b"}),
+    [{"globoweb.erl", "TODO"}] = get_output_files(#{"A" => "a", "file:globoweb.erl" => "TODO", "B" => "b"}),
+    Files = get_output_files(#{"file:globoweb.erl" => "TODO", "file:src/globoweb.erl" => "TODO", "file:../../why.txt" => "?"}),
+    "TODO" = proplists:get_value("globoweb.erl", Files),
+    "TODO" = proplists:get_value("src/globoweb.erl", Files),
+    "?" = proplists:get_value("../../why.txt", Files).
+-endif.
+
+
+% The get_output_files checks that map I've been calling 'blocks' or 'macros'
+% for tags that start with "file:". Since we're only concerned with the output
+% of files, no other blocks are returned. They're probably nested in one of the
+% output file blocks.
+%
+% Also, it returns a proplist which means we went from a three-tuple to a map
+% to two-tuples. I'm kind of annoyed with myself but I still think it's best to
+% keep going. I'm almost ready to complete a first pass at this program and
+% then it can self-host.
+
+
+file_name(Base_directory, File_name) ->
+    filename:nativename(filename:absname_join(Base_directory, File_name)).
+
+-ifdef(TEST).
+file_name_test() ->
+    "test_files/foobar.txt" = file_name("test_files", "foobar.txt"),
+    "/path/to/repository/src/globoweb.erl" = file_name("/path/to/repository", "src/globoweb.erl").
+-endif.
+
+
+% The file_name function will just concatenate paths.
+
+
+write_file(Base_directory, File_name, Contents) ->
+    Fn = file_name(Base_directory, File_name),
+    ok = file:write_file(Fn, Contents),
+    Fn.
+
+-ifdef(TEST).
+write_file_test() ->
+    "test_files/test.txt" = write_file("test_files", "test.txt", "write_file_test\n"),
+    {ok, <<"write_file_test\n">>} = file:read_file(file_name("test_files", "test.txt")),
+    file:delete(file_name("test_files", "test.txt")).
+-endif.
+
+
+% The write_file function just wraps out file naming requirements around
+% file:write_file. The test for this function basically tests that the Erlang
+% file module works, which is a stupid thing to do. I just wanted to make sure
+% I understood it -- it's a test for me, not it.
+
+
+read_file(File_name) ->
+    {ok, Binary} = file:read_file(File_name),
+    binary_to_list(Binary).
+
+-ifdef(TEST).
+read_file_test() ->
+    "test_files/read_file_test.txt" = write_file("test_files", "read_file_test.txt", "read_file_test\n"),
+    Fn = file_name("test_files", "read_file_test.txt"),
+    "read_file_test\n" = read_file(Fn),
+    file:delete(Fn).
+-endif.
+
+
+% We're working with lists, not binaries, so read_file just indicates that.
+
+
+process_file(File_name, Code_tag_start, Code_tag_end, Code_end, Macro_start, Macro_end) ->
+    Contents = read_file(File_name),
+    Blocks = get_blocks(Contents, Code_tag_start, Code_tag_end, Code_end),
+    Code_blocks = strip_markup(Blocks),
+    Macros = concat_code(Code_blocks),
+    % Definitely confusing macros and blocks.
+    Expanded_macros = lists:foldl(fun (_, M) -> expand_blocks(M, Macro_start, Macro_end) end,
+                                  Macros,
+                                  lists:seq(1, 4)),
+    Output_files = get_output_files(Expanded_macros),
+    % If the file is in the current directory it may not have a slash. If it
+    % doesn't filename:basename returns the file name and we want it to be ".".
+    Base_directory = filename:dirname(File_name),
+    lists:map(fun ({Output_file_name, File_contents}) ->
+                  write_file(Base_directory, Output_file_name, File_contents)
+              end,
+              Output_files).
+
+
+-ifdef(TEST).
+process_file_test() ->
+    Output_file = "test_files/process_file_test.js",
+    [Output_file] = process_file("test_files/process_file_test.lit.txt",
+                                          "\n<<", ">>=\n", "\n>>", "<<", ">>"),
+    Expected_output = read_file("test_files/process_file_test.js.expected_output"),
+    Actual_output = read_file(Output_file),
+
+    Expected_output = Actual_output ++ "\n",
+    file:delete(Output_file).
+-endif.
+
+
+% Given an input file, process_file will write the contents out to the file
+% indicated in every tag that starts with "file:". It returns a list of the
+% files written.
+%
+% The actual output of the script has a couple things that annoy me. The first
+% is that the line prefix is applied to empty lines (i.e, "    \n"). The second
+% is that it doesn't end with a line break but vim puts one in my test file.
+% It's probably find to just ignore this or I could also add a line break at
+% the end of all files. I'm not sure what I'll do.
+
+
+process_files(Files, Code_tag_start, Code_tag_end, Code_end, Macro_start, Macro_end) ->
+    process_files(Files, Code_tag_start, Code_tag_end, Code_end, Macro_start, Macro_end, []).
+
+process_files([], _Code_tag_start, _Code_tag_end, _Code_end, _Macro_start, _Macro_end, Acc) ->
+    lists:reverse(Acc);
+
+process_files([File | Rest], Code_tag_start, Code_tag_end, Code_end, Macro_start, Macro_end, Acc) ->
+    process_files(Rest, Code_tag_start, Code_tag_end, Code_end, Macro_start, Macro_end, [process_file(File, Code_tag_start, Code_tag_end, Code_end, Macro_start, Macro_end) | Acc]).
+
+-ifdef(TEST).
+process_files_test() ->
+    Output_files = [["test_files/process_files_1_a.txt", "test_files/process_files_1_b.txt"],
+                    ["test_files/process_files_2_a.txt", "test_files/process_files_2_b.txt"],
+                    ["test_files/process_files_3_a.txt", "test_files/process_files_3_b.txt"]],
+    Output_files = process_files(["test_files/process_files_1.lit.txt",
+                                  "test_files/process_files_2.lit.txt",
+                                  "test_files/process_files_3.lit.txt"],
+                                 "\n<<", ">>=\n", "\n>>", "<<", ">>"),
+    lists:foreach(fun (Files) ->
+                      lists:foreach(fun (File) -> file:delete(File) end, Files)
+                  end,
+                  Output_files).
+-endif.
+
+
+% process_files run process_file on multiple files. Now we just need to start
+% this thing.
+
+
+start(Files) ->
+    Output = process_files(Files, "\n<<", ">>=\n", "\n>>", "<<", ">>"),
+    lists:foreach(fun (Some_files) ->
+                      lists:foreach(fun (File) ->
+                                        io:format("~s written.~n", [File])
+                                    end,
+                                    Some_files)
+                  end,
+                  Output).
