@@ -490,7 +490,7 @@ process_files_test() ->
 
 
 start(Files) ->
-    Output = process_files(Files, "\n<<", ">>=\n", "\n>>", "<<", ">>"),
+    Output = process_files(Files, "\n   :class: ", "\n", "\n.. end code", "::", "::"),
     lists:foreach(fun (Some_files) ->
                       lists:foreach(fun (File) ->
                                         io:format("~s written.~n", [File])
@@ -498,3 +498,18 @@ start(Files) ->
                                     Some_files)
                   end,
                   Output).
+
+
+% When we self-host, I want to do it in reStructuredText. For now we'll just
+% hard code the sentries to our reStructuredText usage.
+
+-ifdef(TEST).
+process_rst_test() ->
+    Output_files = process_file("test_files/test.lit.rst",
+                                "\n   :class: ", "\n", "\n.. end code", "::", "::"),
+    lists:foreach(fun (File) ->
+                      io:format("Deleting: ~p~n", [File]),
+                      file:delete(File)
+                  end,
+                  Output_files).
+-endif.
