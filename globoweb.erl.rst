@@ -31,7 +31,8 @@ tackle this task -- a strong recommendation for literate programming!
 The Program
 ===========
 
-This is the layout of the module.
+This is the layout of the module and the app.src (which is a package
+description).
 
 .. code:: erlang
    :class: file:src/globoweb.erl
@@ -48,6 +49,25 @@ This is the layout of the module.
     -ifdef(TEST).
     __tests__
     -endif.
+.. end code
+
+.. code:: erlang
+   :class: file:src/globoweb.app.src
+
+    {application, globoweb,
+     [
+      {description, "A literate programming tool."},
+      {vsn, "1"},
+      {modules, [
+                 globoweb
+                ]},
+      {registered, []},
+      {applications, [
+                      kernel,
+                      stdlib
+                     ]},
+      {env, []}
+     ]}.
 .. end code
 
 

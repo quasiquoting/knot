@@ -1,14 +1,15 @@
-{application, globoweb,
- [
-  {description, "A literate programming tool."},
-  {vsn, "1"},
-  {modules, [
-             globoweb
-            ]},
-  {registered, []},
-  {applications, [
-                  kernel,
-                  stdlib
-                 ]},
-  {env, []}
- ]}.
+
+    {application, globoweb,
+     [
+      {description, "A literate programming tool."},
+      {vsn, "1"},
+      {modules, [
+                 globoweb
+                ]},
+      {registered, []},
+      {applications, [
+                      kernel,
+                      stdlib
+                     ]},
+      {env, []}
+     ]}.
