@@ -5,6 +5,8 @@ This is a very basic literate file as an initial test.
     <<shared state>>
     <<functions>>
     <<api>>
+    // This shouldn't be detected as a macro:
+    // <\\<not a macro>>
 }());
 >>
 

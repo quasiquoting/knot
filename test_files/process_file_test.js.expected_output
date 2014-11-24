@@ -23,4 +23,6 @@
         message: get_message,
         state: get_state,
         toggle_state: toggle_state};
+    // This shouldn't be detected as a macro:
+    // <<not a macro>>
 }());

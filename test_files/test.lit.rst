@@ -11,8 +11,6 @@ programs in rST because it is the greatest markup in the Universe.
     (function () {
         alert('Hello, world.');
     }());
-.. end code
-
 
 We would explain that JavaScript file and write some Erlang code.
 
@@ -22,22 +20,19 @@ We would explain that JavaScript file and write some Erlang code.
     -module(test_rst).
     -compile(export_all).
 
-    ::functions::
+    <<functions>>
 
     -ifdef(TEST).
-    ::tests::
+    <<tests>>
     -endif.
-.. end code
 
 .. code:: erlang
    :class: functions
 
     some_function() -> ok.
-.. end code
 
 .. code:: erlang
    :class: tests
 
     some_function_test() ->
         ok = some_function().
-.. end code
