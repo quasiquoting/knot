@@ -1,12 +1,12 @@
-========
-Globoweb
-========
+====
+Knot
+====
 
-Globoweb is a literate programming tool. You may wish to take a look at `other
+Knot is a literate programming tool. You may wish to take a look at `other
 tools`_; `nuweb`_ and `noweb`_ are particularly significant. There is also
 `lit`_, which uses Markdown for its syntax.
 
-Globoweb only tangles; it does not weave.
+Knot only tangles; it does not weave.
 
 Rationale
 =========
@@ -34,9 +34,9 @@ The Program
 This is the layout of the module.
 
 .. code:: erlang
-   :class: file:src/globoweb.erl
+   :class: file:src/knot.erl
 
-    -module(globoweb).
+    -module(knot).
     -compile(export_all).
     -ifdef(TEST).
     -include_lib("eunit/include/eunit.hrl").
@@ -47,6 +47,23 @@ This is the layout of the module.
     -ifdef(TEST).
     <<tests>>
     -endif.
+
+And the ``app`` file that rebar will need to compile this stuff.
+
+.. code:: erland
+   :class: file:src/knot.app.src
+
+    {application, knot,[
+        {description, "A literate programming tool."},
+        {vsn, "1"},
+        {modules, [knot]},
+        {registered, []},
+        {applications, [
+            kernel,
+            stdlib
+        ]},
+        {env, []}
+    ]}.
 
 
 Finding Code Blocks
@@ -554,10 +571,10 @@ The software must perform work. This is how it outputs files.
 
     get_output_files_test() ->
         [] = get_output_files(#{"A" => "a", "B" => "b"}),
-        [{"globoweb.erl", "TODO"}] = get_output_files(#{"A" => "a", "file:globoweb.erl" => "TODO", "B" => "b"}),
-        Files = get_output_files(#{"file:globoweb.erl" => "TODO", "file:src/globoweb.erl" => "TODO", "file:../../why.txt" => "?"}),
-        "TODO" = proplists:get_value("globoweb.erl", Files),
-        "TODO" = proplists:get_value("src/globoweb.erl", Files),
+        [{"knot.erl", "TODO"}] = get_output_files(#{"A" => "a", "file:knot.erl" => "TODO", "B" => "b"}),
+        Files = get_output_files(#{"file:knot.erl" => "TODO", "file:src/knot.erl" => "TODO", "file:../../why.txt" => "?"}),
+        "TODO" = proplists:get_value("knot.erl", Files),
+        "TODO" = proplists:get_value("src/knot.erl", Files),
         "?" = proplists:get_value("../../why.txt", Files).
 
 
@@ -582,7 +599,7 @@ can self-host.
 
     file_name_test() ->
         "test_files/foobar.txt" = file_name("test_files", "foobar.txt"),
-        "/path/to/repository/src/globoweb.erl" = file_name("/path/to/repository", "src/globoweb.erl").
+        "/path/to/repository/src/knot.erl" = file_name("/path/to/repository", "src/knot.erl").
 
 The file_name function will just concatenate paths.
 

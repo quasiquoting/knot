@@ -1,0 +1,12 @@
+{application, knot,[
+    {description, "A literate programming tool."},
+    {vsn, "1"},
+    {modules, [knot]},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib
+    ]},
+    {env, []}
+]}.
+

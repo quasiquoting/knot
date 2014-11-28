@@ -1,4 +1,4 @@
--module(globoweb).
+-module(knot).
 -compile(export_all).
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
@@ -362,16 +362,16 @@ unescape_test_again() ->
 
 get_output_files_test() ->
     [] = get_output_files(#{"A" => "a", "B" => "b"}),
-    [{"globoweb.erl", "TODO"}] = get_output_files(#{"A" => "a", "file:globoweb.erl" => "TODO", "B" => "b"}),
-    Files = get_output_files(#{"file:globoweb.erl" => "TODO", "file:src/globoweb.erl" => "TODO", "file:../../why.txt" => "?"}),
-    "TODO" = proplists:get_value("globoweb.erl", Files),
-    "TODO" = proplists:get_value("src/globoweb.erl", Files),
+    [{"knot.erl", "TODO"}] = get_output_files(#{"A" => "a", "file:knot.erl" => "TODO", "B" => "b"}),
+    Files = get_output_files(#{"file:knot.erl" => "TODO", "file:src/knot.erl" => "TODO", "file:../../why.txt" => "?"}),
+    "TODO" = proplists:get_value("knot.erl", Files),
+    "TODO" = proplists:get_value("src/knot.erl", Files),
     "?" = proplists:get_value("../../why.txt", Files).
 
 
 file_name_test() ->
     "test_files/foobar.txt" = file_name("test_files", "foobar.txt"),
-    "/path/to/repository/src/globoweb.erl" = file_name("/path/to/repository", "src/globoweb.erl").
+    "/path/to/repository/src/knot.erl" = file_name("/path/to/repository", "src/knot.erl").
 
 write_file_test() ->
     "test_files/test.txt" = write_file("test_files", "test.txt", "write_file_test\n"),
@@ -434,4 +434,3 @@ process_rst_test() ->
                   Output_files).
 
 -endif.
-
