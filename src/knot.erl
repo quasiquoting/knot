@@ -1,199 +1,186 @@
 -module(knot).
 -compile(export_all).
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
 
-parse(Document, Config) ->
-    parse(Document, Config, []).
+collect_to_eol(Input) ->
+    collect_to_eol(Input, "").
 
-parse("", _Config, Acc) ->
-    lists:reverse(Acc);
-
-parse(Input, #{code_start := Start} = Config, Acc) ->
-    case re:run(Input, Start, [{capture, [consume, tag], list}]) of
-        nomatch ->
-            [_Char | Rest] = Input,
-            parse(Rest, Config, Acc);
-        {match, [Consume, Tag]} ->
-            Consumed_input = re:replace(Input, Consume, "", [{return, list}]),
-            {Code, Rest} = parse_code(Consumed_input, Config),
-            parse(Rest, Config, [{Tag, Code} | Acc])
-    end.
-
-
-parse_code(Input, Config) ->
-    parse_code(Input, Config, []).
-
-parse_code("", _Config, Acc) ->
+collect_to_eol("", Acc) ->
     {lists:reverse(Acc), ""};
 
-parse_code(Input, #{code_end := End} = Config, Acc) ->
-    case re:run(Input, End) of
+collect_to_eol([$\n | Rest], Acc) ->
+    {lists:reverse(Acc), Rest};
+
+collect_to_eol([Char | Rest], Acc) ->
+    collect_to_eol(Rest, [Char | Acc]).
+collect_to_fence(Input) ->
+    collect_to_fence(Input, "").
+
+collect_to_fence("", Acc) ->
+    {lists:reverse(Acc), ""};
+
+collect_to_fence([$\n, $`, $`, $` | Rest], Acc) ->
+    {lists:reverse(Acc), Rest};
+
+collect_to_fence([Char | Rest], Acc) ->
+    collect_to_fence(Rest, [Char | Acc]).
+collect_to_unindent(Input) ->
+    collect_to_unindent(Input, "").
+
+collect_to_unindent("", Acc) ->
+    {lists:reverse(Acc), ""};
+
+collect_to_unindent([$\n | Rest], Acc) ->
+    case re:run(Rest, "^\\S") of
+        {match, _} ->
+            % Must put the line break back on to detect the next code block.
+            {lists:reverse(Acc), [$\n | Rest]};
         nomatch ->
-            [Char | Rest] = Input,
-            parse_code(Rest, Config, [Char | Acc]);
-        {match, _} ->
-            {lists:reverse(Acc), Input}
-    end.
+            collect_to_unindent(Rest, [$\n | Acc])
+    end;
 
-parse_test() ->
-    Document = "This is some documentation.\n"
-               "\n"
-               ".. code:: erlang\n"
-               "   :class: file:test_files/test_document.erl\n"
-               "\n"
-               "    This is code.\n"
-               "\n"
-               "    More code.\n"
-               "\n"
-               "\n"
-               "More documentation.\n",
+collect_to_unindent([Char | Rest], Acc) ->
+    collect_to_unindent(Rest, [Char | Acc]).
+collect_code([$`, $`, $` | Rest]) ->
+    % There might be a syntax highlighting hint that we can ignore.
+    {_, Rest1} = collect_to_eol(Rest),
+    collect_to_fence(Rest1);
 
-    Parser_config = #{code_start => "^(?<consume>\n.. code::( | [^\n]+)?\n   :class: (?<tag>[^\n]+)\n)",
-                      code_end => "^(?<consume>\n)[\\S]"},
+collect_code(Input) ->
+    collect_to_unindent(Input).
+all_code(Input) ->
+    all_code(Input, []).
 
-    [{"file:test_files/test_document.erl", "\n    This is code.\n\n    More code.\n\n"}] = parse(Document, Parser_config),
-
-
-    Larger_document = string:join([Document, Document], "\n"),
-    Expected_output = [
-        {"file:test_files/test_document.erl", "\n    This is code.\n\n    More code.\n\n"},
-        {"file:test_files/test_document.erl", "\n    This is code.\n\n    More code.\n\n"}
-    ],
-    Expected_output = parse(Larger_document, Parser_config).
-
-
-find_indentation([]) -> "";
-
-find_indentation([Line | Lines]) ->
-    case re:run(Line, "\\S") of
-        {match, _} ->
-            {match, [Indentation]} = re:run(Line, "^(?<indentation>[\s]*)", [{capture, [indentation], list}]),
-            Indentation;
-        _ ->
-            find_indentation(Lines)
-    end.
-
-trim_indentation(Lines, Indentation) ->
-    Regex = string:join(["^", Indentation], ""),
-    trim_indentation(Lines, Regex, []).
-
-trim_indentation([], _Regex, Acc) ->
+all_code("", Acc) ->
     lists:reverse(Acc);
 
-trim_indentation([Line | Rest], Regex, Acc) ->
-    trim_indentation(Rest, Regex, [re:replace(Line, Regex, "", [{return, list}]) | Acc]).
+all_code([$\n, $#, $#, $#, $#, $#, $#, $  | Rest], Acc) ->
+    {Name, Rest1} = collect_to_eol(Rest),
+    {Code, Rest2} = collect_code(Rest1),
+    all_code(Rest2, [{Name, Code} | Acc]);
 
-trim_code(Code) ->
-    Lines = re:split(Code, "\n", [{return, list}]),
-    Indentation = find_indentation(Lines),
-    New_lines = trim_indentation(Lines, Indentation),
-    string:join(New_lines, "\n").
+all_code([_ | Rest], Acc) ->
+    all_code(Rest, Acc).
+find_indentation("") ->
+    "";
 
-concat_code(Blocks) ->
-    concat_code(Blocks, #{}).
-
-concat_code([], Map) ->
-    Map;
-
-concat_code([{Tag, Code} | Rest], Map) ->
-    case maps:is_key(Tag, Map) of
-        true ->
-            concat_code(Rest, maps:update(Tag, string:join([maps:get(Tag, Map), Code], "\n"), Map));
-        _ ->
-            concat_code(Rest, maps:put(Tag, Code, Map))
-    end.
-
-find_macro(Line, #{macro := Pattern} = _Config) ->
-    find_macro(Line, Pattern, "").
-
-find_macro("", _Pattern, _Acc) ->
-    % No macro was found.
-    none;
-
-find_macro(Line, Pattern, Acc) ->
-    case re:run(Line, Pattern, [{capture, all, list}]) of
+find_indentation(Code) ->
+    {Line, Rest} = collect_to_eol(Code),
+    case re:run(Line, "^(?<white>\\s*)\\S", [{capture, [white], list}]) of
+        {match, [White]} ->
+            White;
         nomatch ->
-            [Char | Rest] = Line,
-            find_macro(Rest, Pattern, [Char | Acc]);
-
-        {match, [Entire_match, Name]} ->
-            Prefix = lists:reverse(Acc),
-            Suffix = string:substr(Line, string:len(Entire_match) + 1),
-            {Name, Prefix, Suffix}
+            find_indentation(Rest)
+    end.
+unindent(Code) ->
+    case find_indentation(Code) of
+        "" ->
+            Code;
+        Indentation ->
+            Pattern = [$^ | Indentation],
+            unindent(Code, Pattern, [])
     end.
 
-expand_macros(Block, Macros, Config) ->
-    string:join(expand_macros(re:split(Block, "\n", [{return, list}]), Macros, Config, []),
-                "\n").
+unindent("", _Pattern, Lines) ->
+    string:join(lists:reverse(Lines), "\n");
 
-expand_macros([], _Macros, _Config, Acc) ->
-    lists:reverse(Acc);
+unindent(Code, Pattern, Lines) ->
+    {Line, Rest} = collect_to_eol(Code),
+    Unindented_line = re:replace(Line, Pattern, "", [{return, list}]),
+    unindent(Rest, Pattern, [Unindented_line | Lines]).
+unindent_blocks(Blocks) ->
+    lists:map(fun ({Name, Code}) ->
+                  {Name, unindent(Code)}
+              end,
+              Blocks).
+concat_blocks(Blocks) ->
+    Join_blocks = fun (Key, Acc) ->
+        Values = proplists:get_all_values(Key, Blocks),
+        Joined = string:join(Values, "\n"),
+        [{Key, Joined} | Acc]
+    end,
 
-expand_macros([Line | Rest], Macros, Config, Acc) ->
-    case find_macro(Line, Config) of
-        none ->
-            expand_macros(Rest, Macros, Config, [Line | Acc]);
+    lists:foldr(Join_blocks, [], proplists:get_keys(Blocks)).
+collect_to_macro_delimeter(Line) ->
+    collect_to_macro_delimeter(Line, "").
+
+collect_to_macro_delimeter("", Acc) ->
+    {lists:reverse(Acc), ""};
+
+% Ignores escaped delimeters.
+collect_to_macro_delimeter([$\\, $#, $#, $#, $#, $#, $# | Rest], Acc) ->
+    collect_to_macro_delimeter(Rest, [$#, $#, $#, $#, $#, $#, $\\ | Acc]);
+
+collect_to_macro_delimeter([$#, $#, $#, $#, $#, $# | Rest], Acc) ->
+    {lists:reverse(Acc), Rest};
+
+collect_to_macro_delimeter([Char | Rest], Acc) ->
+    collect_to_macro_delimeter(Rest, [Char | Acc]).
+macro(Line) ->
+    case collect_to_macro_delimeter(Line) of
+        {_, ""} ->
+            % No macro in this line.
+            nil;
+
+        {Prefix, Rest} ->
+            % Rest contains the macro name and, potentially, another
+            % delimeter before the suffix.
+            {Padded_name, Suffix} = collect_to_macro_delimeter(Rest),
+            {string:strip(Padded_name), Prefix, Suffix}
+    end.
+expand_macros(Code, Blocks) ->
+    expand_macros(Code, Blocks, []).
+
+expand_macros("", _Blocks, Acc) ->
+    string:join(lists:reverse(Acc), "\n");
+
+expand_macros(Code, Blocks, Acc) ->
+    {Line, Rest} = collect_to_eol(Code),
+    case macro(Line) of
+        nil ->
+            expand_macros(Rest, Blocks, [Line | Acc]);
 
         {Name, Prefix, Suffix} ->
-            Value = maps:get(Name, Macros),
-            Value_lines = re:split(Value, "\n", [{return, list}]),
-            Expanded_lines = lists:map(fun (L) -> Prefix ++ L ++ Suffix end, Value_lines),
-            New_acc = lists:foldl(fun (X, List) -> [X | List] end, Acc, Expanded_lines),
-            expand_macros(Rest, Macros, Config, New_acc)
+            case proplists:get_value(Name, Blocks) of
+                undefined ->
+                    io:format("Warning: code block named ~p not found.~n", [Name]),
+                    expand_macros(Rest, Blocks, [Line | Acc]);
+
+                Code_to_insert ->
+                    New_lines = re:split(Code_to_insert, "\n", [{return, list}]),
+                    Wrapped = lists:map(fun (X) -> Prefix ++ X ++ Suffix end, New_lines),
+                    expand_macros(Rest, Blocks, [string:join(Wrapped, "\n") | Acc])
+            end
     end.
+expand_all_macros(Blocks) ->
+    expand_all_macros(Blocks, Blocks, []).
 
-expand_all_blocks(Macros, Config) ->
-    maps:map(fun (_K, V) -> expand_macros(V, Macros, Config) end, Macros).
-
-unescape(Line, Config) ->
-    unescape(Line, Config, "").
-
-unescape("", _Config, Acc) ->
+expand_all_macros([], _Blocks, Acc) ->
     lists:reverse(Acc);
 
-unescape(Line, #{escaped_macro := Pattern} = Config, Acc) ->
-    case re:run(Line, Pattern, [{capture, all}]) of
-        nomatch ->
-            [Char | Rest] = Line,
-            unescape(Rest, Config, [Char | Acc]);
+expand_all_macros([{Name, Code} | Rest], Blocks, Acc) ->
+    expand_all_macros(Rest, Blocks, [{Name, expand_macros(Code, Blocks)} | Acc]).
 
-        {match, [{0, Match_end} | Groups]} ->
-            Replacement_string = lists:foldl(
-                fun (X, A) ->
-                    lists:concat([A, substring(Line, X)])
-                end,
-                "",
-                Groups),
-            Rest_of_line = string:substr(Line, Match_end + 1),
-            unescape(Rest_of_line, Config, lists:concat([lists:reverse(Replacement_string), Acc]))
-    end.
+unescape(Code) ->
+    re:replace(Code, "\\\\######", "######", [global, {return, list}]).
+unescape_blocks(Blocks) ->
+    unescape_blocks(Blocks, []).
 
-substring(String, {Start, Length}) ->
-    string:substr(String, Start + 1, Length).
-
-lines(String) ->
-    re:split(String, "\n", [{return, list}]).
-
-map_lines(Fun, String) ->
-    Altered_lines = lists:map(Fun, lines(String)),
-    string:join(Altered_lines, "\n").
-
-get_output_files(Blocks) ->
-    get_output_files(maps:to_list(Blocks), []).
-
-get_output_files([], Acc) ->
+unescape_blocks([], Acc) ->
     lists:reverse(Acc);
 
-get_output_files([{Tag, Block} | Rest], Acc) ->
-    case Tag of
-        [$f, $i, $l, $e, $: | File_name] ->
-            get_output_files(Rest, [{File_name, Block} | Acc]);
-        _ ->
-            get_output_files(Rest, Acc)
-    end.
+unescape_blocks([{Name, Code} | Rest], Acc) ->
+    unescape_blocks(Rest, [{Name, unescape(Code)} | Acc]).
+file_blocks(Blocks) ->
+    file_blocks(Blocks, []).
 
+file_blocks([], Acc) ->
+    lists:reverse(Acc);
+
+file_blocks([{[$f, $i, $l, $e, $: | _] = Name, Code} | Rest], Acc) ->
+    file_blocks(Rest, [{Name, Code} | Acc]);
+
+file_blocks([_ | Rest], Acc) ->
+    file_blocks(Rest, Acc).
 file_name(Base_directory, File_name) ->
     filename:nativename(filename:absname_join(Base_directory, File_name)).
 
@@ -201,174 +188,270 @@ write_file(Base_directory, File_name, Contents) ->
     Fn = file_name(Base_directory, File_name),
     ok = file:write_file(Fn, Contents),
     Fn.
+process_file(File_name) ->
+    Base_directory = filename:dirname(File_name),
+    Files = file_blocks(
+                unescape_blocks(
+                    expand_all_macros(
+                        concat_blocks(
+                            unindent_blocks(
+                                all_code(
+                                    read_file(File_name))))))),
+    write_file_blocks(Base_directory, Files).
 
+write_file_blocks(_Base_directory, []) ->
+    ok;
+
+write_file_blocks(Base_directory, [{[$f, $i, $l, $e, $: | File_name], Contents} | Rest]) ->
+    write_file(Base_directory, File_name, Contents),
+    write_file_blocks(Base_directory, Rest).
+process_files([]) ->
+    ok;
+
+process_files([File | Files]) ->
+    process_file(File),
+    process_files(Files).
 read_file(File_name) ->
     {ok, Binary} = file:read_file(File_name),
     binary_to_list(Binary).
 
-process_file(File_name, Config) ->
-    Contents = read_file(File_name),
-    Blocks = parse(Contents, Config),
-    Unindented_blocks = lists:map(fun ({Tag, Code}) -> {Tag, trim_code(Code)} end, Blocks),
-    Macros = concat_code(Unindented_blocks),
-    Expanded_macros = expand_all_blocks(Macros, Config),
-    Unescaped_macros = maps:map(fun (_K, V) ->
-                                    map_lines(fun (Line) ->
-                                                  unescape(Line, Config)
-                                              end,
-                                              V)
-                                end,
-                                Expanded_macros),
-    Output_files = get_output_files(Unescaped_macros),
-    Base_directory = filename:dirname(File_name),
-    lists:map(fun ({Output_file_name, File_contents}) ->
-                  write_file(Base_directory, Output_file_name, File_contents)
-              end,
-              Output_files).
-
-process_files(Files, Config) ->
-    process_files(Files, Config, []).
-
-process_files([], _Config, Acc) ->
-    lists:reverse(Acc);
-
-process_files([File | Rest], Config, Acc) ->
-    process_files(Rest, Config, [process_file(File, Config) | Acc]).
-
-start(Files) ->
-    Config = #{code_end => "^\n[\\S]",
-               code_start => "^(?<consume>\n.. code::.*\n   :class: (?<tag>.+)\n\n)",
-               macro => "^<<(?<name>[^>]+)>>",
-               escaped_macro => "^(<)_(<)"},
-    Output = process_files(Files, Config),
-    lists:foreach(fun (Some_files) ->
-                      lists:foreach(fun (File) ->
-                                        io:format("~s written.~n", [File])
-                                    end,
-                                    Some_files)
+print_blocks(Blocks) ->
+    lists:foreach(fun ({Name, Code}) ->
+                      io:format("~s~n-----~n~s~n-----~n~n",
+                                [Name, Code])
                   end,
-                  Output).
+                  Blocks).
+print_code(File_name) ->
+    print_blocks(
+        all_code(
+            read_file(File_name))).
 
+print_unindented_code(File_name) ->
+    print_blocks(
+        unindent_blocks(
+            all_code(
+                read_file(File_name)))).
+
+print_concatenated_code(File_name) ->
+    print_blocks(
+        concat_blocks(
+            unindent_blocks(
+                all_code(
+                    read_file(File_name))))).
+
+print_expanded_code(File_name) ->
+    print_blocks(
+        expand_all_macros(
+            concat_blocks(
+                unindent_blocks(
+                    all_code(
+                        read_file(File_name)))))).
+
+print_unescaped_code(File_name) ->
+    print_blocks(
+        unescape_blocks(
+            expand_all_macros(
+                concat_blocks(
+                    unindent_blocks(
+                        all_code(
+                            read_file(File_name))))))).
+
+print_file_blocks(File_name) ->
+    print_blocks(
+        file_blocks(
+            unescape_blocks(
+                expand_all_macros(
+                    concat_blocks(
+                        unindent_blocks(
+                            all_code(
+                                read_file(File_name)))))))).
 
 -ifdef(TEST).
-find_indentation_test() ->
-    "    " = find_indentation(["", "  \t", "    ", "    foo() -> ok.", "\t\tbar() -> ok."]),
-    "" = find_indentation(["", "", "foo() -> ok.", "", "bar() -> ok."]).
+collect_to_eol_test() ->
+    {"", ""} = collect_to_eol(""),
+    {"foo", "bar\nbaz"} = collect_to_eol("foo\nbar\nbaz"),
+    {"foo", ""} = collect_to_eol("foo\n").
+
+collect_to_fence_test() ->
+    {"foobar", ""} = collect_to_fence("foobar"),
+    {"my\ncode\nhere", "\nmore input"} = collect_to_fence("my\ncode\nhere\n```\nmore input").
+
+collect_to_unindent_test() ->
+    {"foobar", ""} = collect_to_unindent("foobar"),
+    {"    my\n    code\n    here\n", "\nmy documentation"} = collect_to_unindent("    my\n    code\n    here\n\nmy documentation").
+fenced_collect_code_test() ->
+    Input = "```erlang\n"
+            "\n"
+            "-module(foobar).\n"
+            "-compile(export_all).\n"
+            "\n"
+            "foo() ->\n"
+            "    ok.\n"
+            "```\n"
+            "\n"
+            "documentation\n",
+    Expected_block = "\n"
+                     "-module(foobar).\n"
+                     "-compile(export_all).\n"
+                     "\n"
+                     "foo() ->\n"
+                     "    ok.",
+    Expected_rest = "\n\ndocumentation\n",
+    {Expected_block, Expected_rest} = collect_code(Input).
 
 
-trim_indentation_test() ->
-    Input = [" ", "\t   ", "    foo() -> ok.", "    ", "    bar() -> ok."],
-    % Leaves inconsisten input alone.
-    Expected = [" ", "\t   ", "foo() -> ok.", "", "bar() -> ok."],
-    Expected = trim_indentation(Input, "    ").
-
-
-trim_code_test() ->
+indented_collect_code_test() ->
     Input = "\n"
+            "    -module(foobar).\n"
+            "    -compile(export_all).\n"
             "\n"
             "    foo() ->\n"
             "        ok.\n"
             "\n"
-            "    bar() -> ok.\n"
-            "\n",
-    Expected = "\n"
-               "\n"
-               "foo() ->\n"
-               "    ok.\n"
-               "\n"
-               "bar() -> ok.\n"
-               "\n",
+            "documentation\n",
+    Expected_block = "\n"
+                     "    -module(foobar).\n"
+                     "    -compile(export_all).\n"
+                     "\n"
+                     "    foo() ->\n"
+                     "        ok.\n",
+    Expected_rest = "\ndocumentation\n",
+    {Expected_block, Expected_rest} = collect_code(Input).
 
-    Expected = trim_code(Input).
+all_code_test() ->
+    Input = "A sample document.\n"
+            "\n"
+            "###### indented code block\n"
+            "\n"
+            "    Code 1, line 1.\n"
+            "    Code 1, line 2.\n"
+            "\n"
+            "More documentation.\n"
+            "\n"
+            "###### fenced code block\n"
+            "```erlang\n"
+            "Code 2, line 1.\n"
+            "Code 2, line 2.\n"
+            "```\n"
+            "\n"
+            "End of sample document.\n",
 
+    Expected = [{"indented code block", "\n    Code 1, line 1.\n    Code 1, line 2.\n"},
+                {"fenced code block", "Code 2, line 1.\nCode 2, line 2."}],
 
-concat_code_test() ->
-    Input = [{"a", "one"}, {"b", "two"}, {"a", "three"}],
-    Expected = #{"a" => "one\nthree",
-                 "b" => "two"},
-    Expected = concat_code(Input).
+    Expected = all_code(Input).
 
+all_code_no_intermediate_documentation_test() ->
+    Input = "A sample document.\n"
+            "\n"
+            "###### indented code block\n"
+            "\n"
+            "    Code 1, line 1.\n"
+            "    Code 1, line 2.\n"
+            "\n"
+            "###### another indented code block\n"
+            "    Code 2, line 1.\n"
+            "    Code 2, line 2.\n"
+            "\n"
+            "The end.\n",
 
-find_macro_test() ->
-    Input = "    <li><<list elements>></li>",
-    Expected = {"list elements", "    <li>", "</li>"},
-    Expected = find_macro(Input, #{macro => "^<<(?<name>[^>]+)>>"}).
+    Expected = [{"indented code block", "\n    Code 1, line 1.\n    Code 1, line 2.\n"},
+                {"another indented code block", "    Code 2, line 1.\n    Code 2, line 2.\n"}],
+
+    Expected = all_code(Input).
+
+find_indentation_test() ->
+    "" = find_indentation(""),
+    "" = find_indentation("    \n\t  \n    \nsomething"),
+    "\t" = find_indentation("\n\n\tsomething\n\n"),
+    "    " = find_indentation("\n    something").
+unindent_four_spaces_test() ->
+    Input = "\n\n    foo() ->\n        ok.\n\n",
+    Expected = "\n\nfoo() ->\n    ok.\n",
+    Expected = unindent(Input).
+
+unindent_nothing_test() ->
+    Input = "\nfoo() ->\n    ok.\n",
+    Input = unindent(Input).
+
+unindent_tabs_test() ->
+    Input = "\n\tfoo() ->\n\t\tok.\n",
+    Expected = "\nfoo() ->\n\tok.",
+    Expected = unindent(Input).
+unindent_blocks_test() ->
+    Input = [{"foo", "\tfoo() ->\n\t\tok."},
+             {"bar", "    foo() ->\n        ok."}],
+
+    Expected = [{"foo", "foo() ->\n\tok."},
+                {"bar", "foo() ->\n    ok."}],
+
+    Expected = unindent_blocks(Input).
+
+concat_blocks_test() ->
+    Input = [{"foo", "FOO"},
+             {"bar", "BAR"},
+             {"foo", "FOO"}],
+
+    Expected = [{"foo", "FOO\nFOO"},
+                {"bar", "BAR"}],
+
+    Expected = concat_blocks(Input).
+
+collect_to_macro_delimeter_test() ->
+    {"foobar", ""} = collect_to_macro_delimeter("foobar"),
+    {"    ", " my macro"} = collect_to_macro_delimeter("    ###### my macro"),
+    {"- ", " my macro ###### -"} = collect_to_macro_delimeter("- ###### my macro ###### -"),
+    {"my macro ", " -"} = collect_to_macro_delimeter("my macro ###### -"),
+    {"\\###### not a macro", ""} = collect_to_macro_delimeter("\\###### not a macro").
+macro_test() ->
+    nil = macro("foobar"),
+    {"my macro", "    ", ""} = macro("    ###### my macro"),
+    {"my macro", "    <li>", "</li>"} = macro("    <li>###### my macro ######</li>").
 
 expand_macros_test() ->
-    Input = "<ul>\n"
-            "    <li><<items>></li>\n"
-            "</ul>",
-    Expected = "<ul>\n"
-               "    <li>one</li>\n"
-               "    <li>two</li>\n"
-               "    <li>three</li>\n"
-               "</ul>",
-    Macros = #{"items" => "one\ntwo\nthree"},
-    Config = #{macro => "^<<(?<name>[^>]+)>>"},
+    Input_code = "\n"
+                 "start\n"
+                 "###### things\n"
+                 "- ###### things ###### -\n"
+                 "end\n",
+    Input_blocks = [{"things", "one\ntwo"}],
+    Expected = "\nstart\none\ntwo\n- one -\n- two -\nend",
+    Expected = expand_macros(Input_code, Input_blocks).
 
-    Expected = expand_macros(Input, Macros, Config).
+expand_all_macros_test() ->
+    Input = [{"first one", "First.\n###### list of things"},
+             {"second one", "This...\n-###### list of things ######-\nis the second."},
+             {"All the things!", "###### first one ######\n* ###### second one ###### *\nDone."},
+             {"list of things", "one\ntwo"}],
 
+    Expected = [{"first one", "First.\none\ntwo"},
+                {"second one", "This...\n-one-\n-two-\nis the second."},
+                {"All the things!", "First.\none\ntwo\n* This... *\n* -one- *\n* -two- *\n* is the second. *\nDone."},
+                {"list of things", "one\ntwo"}],
 
-expand_all_blocks_test() ->
-    Config = #{macro => "^<<(?<name>[^>]+)>>"},
+    Expected = expand_all_macros(expand_all_macros(Input)).
 
-    Input = #{"A" => "a:\n"
-                     "  <<B>>",
-              "B" => "b\nb",
-              "C" => "c:\n"
-                     "  <<D>>",
-              "D" => "d\nd",
-              "ALL" => "<<A>>\n"
-                       "    || <<C>> ||\n"},
+unescape_test() ->
+    "foo\n    ###### not a macro\nbar" = unescape("foo\n    \\###### not a macro\nbar"),
+    "- \\###### really not a macro \\###### -" = unescape("- \\\\###### really not a macro \\\\###### -"),
+    "###### h6 of another Markdown document ######" = unescape("\\###### h6 of another Markdown document \\######").
+unescape_blocks_test() ->
+    Input = [{"foo", "\\######"},
+             {"bar", "bar"},
+             {"baz", "\\###### h6 of another Markdown document \\######"}],
 
-    Expected = #{"A" => "a:\n"
-                        "  b\n"
-                        "  b",
-                 "B" => "b\nb",
-                 "C" => "c:\n"
-                        "  d\n"
-                        "  d",
-                 "D" => "d\nd",
-                 "ALL" => "a:\n"
-                          "  b\n"
-                          "  b\n"
-                          "    || c: ||\n"
-                          "    ||   d ||\n"
-                          "    ||   d ||\n"},
+    Expected = [{"foo", "######"},
+                {"bar", "bar"},
+                {"baz", "###### h6 of another Markdown document ######"}],
 
-    Expected = expand_all_blocks(expand_all_blocks(Input, Config), Config).
-
-escaped_macro_example_test() ->
-    Input = "<<notamacro>> ...",
-    Pattern = "(<)\\|(<[^>]+>>)",
-    Expected = "<<notamacro>> ...",
-
-    Expected = unescape(Input, #{escaped_macro => Pattern}).
-
-substring_test() ->
-    "123" = substring("12345", {0, 3}).
-
-lines_test() ->
-    ["foo", "bar", "baz"] = lines("foo\nbar\nbaz").
-
-map_lines_test() ->
-    "foo\nbar\nbaz\nbuzz" = map_lines(fun (X) -> X end, "foo\nbar\nbaz\nbuzz").
-
-unescape_test_again() ->
-    Config = #{escaped_macro => "^(<)\\(<([^>]+>>)"},
-    "    No macro." = unescape("    No macro.", Config),
-    "    <<notamacro>>" = unescape("    <\\<notamacro>>", Config).
-
-
-get_output_files_test() ->
-    [] = get_output_files(#{"A" => "a", "B" => "b"}),
-    [{"knot.erl", "TODO"}] = get_output_files(#{"A" => "a", "file:knot.erl" => "TODO", "B" => "b"}),
-    Files = get_output_files(#{"file:knot.erl" => "TODO", "file:src/knot.erl" => "TODO", "file:../../why.txt" => "?"}),
-    "TODO" = proplists:get_value("knot.erl", Files),
-    "TODO" = proplists:get_value("src/knot.erl", Files),
-    "?" = proplists:get_value("../../why.txt", Files).
-
-
+    Expected = unescape_blocks(Input).
+file_blocks_test() ->
+    Input = [{"file:a", "a"},
+             {"not a file", "not a file"},
+             {"file:b", "b"}],
+    Expected = [{"file:a", "a"},
+                {"file:b", "b"}],
+    Expected = file_blocks(Input).
 file_name_test() ->
     "test_files/foobar.txt" = file_name("test_files", "foobar.txt"),
     "/path/to/repository/src/knot.erl" = file_name("/path/to/repository", "src/knot.erl").
@@ -378,59 +461,11 @@ write_file_test() ->
     {ok, <<"write_file_test\n">>} = file:read_file(file_name("test_files", "test.txt")),
     file:delete(file_name("test_files", "test.txt")).
 
-read_file_test() ->
-    "test_files/read_file_test.txt" = write_file("test_files", "read_file_test.txt", "read_file_test\n"),
-    Fn = file_name("test_files", "read_file_test.txt"),
-    "read_file_test\n" = read_file(Fn),
-    file:delete(Fn).
-
 process_file_test() ->
-    Config = #{code_start => "^(?<consume><<(?<tag>[^>]+)>>=\n)",
-               code_end => "^\n>>",
-               macro => "^<<(?<name>[^>]+)>>",
-               escaped_macro => "^(<)\\\\\\\\(<)"},
-
-    Output_file = "test_files/process_file_test.js",
-
-    [Output_file] = process_file("test_files/process_file_test.lit.txt", Config),
-    Expected_output = read_file("test_files/process_file_test.js.expected_output"),
-    Actual_output = read_file(Output_file),
-
-    Expected_output = Actual_output ++ "\n",
-    file:delete(Output_file).
-
-process_files_test() ->
-    Config = #{code_start => "^(?<consume>\n<<(?<tag>[^>]+)>>=\n)",
-               code_end => "^(?<consume>^\n>>)\n",
-               macro => "^<<(?<name>[^>]+)>>",
-               escaped_macro => "^(<)|(<)"},
-
-    Expected = [["test_files/process_files_1_a.txt", "test_files/process_files_1_b.txt"],
-                ["test_files/process_files_2_a.txt", "test_files/process_files_2_b.txt"],
-                ["test_files/process_files_3_a.txt", "test_files/process_files_3_b.txt"]],
-
-    Expected = process_files(["test_files/process_files_1.lit.txt",
-                              "test_files/process_files_2.lit.txt",
-                              "test_files/process_files_3.lit.txt"],
-                             Config),
-    lists:foreach(fun (Files) ->
-                      lists:foreach(fun (File) -> file:delete(File) end, Files)
-                  end,
-                  Expected).
-
-
-process_rst_test() ->
-    Config = #{code_end => "^\n[\\S]",
-               code_start => "^(?<consume>\n.. code::.*\n   :class: (?<tag>.+)\n\n)",
-               macro => "^<<(?<name>[^>]+)>>",
-               escaped_macro => "^(<)_(<)"},
-
-    Output_files = process_file("test_files/test.lit.rst", Config),
-
-    lists:foreach(fun (File) ->
-                      io:format("Deleting: ~p~n", [File]),
-                      file:delete(File)
-                  end,
-                  Output_files).
-
+    ok = process_file("test_files/process_file_test.md"),
+    Expected = read_file("test_files/process_file_test.js.expected_output"),
+    Actual = read_file("test_files/process_file_test.js") ++ "\n",
+    io:format("~p~n~p~n", [Expected, Actual]),
+    Expected = Actual,
+    file:delete("test_files/process_file_test.js").
 -endif.

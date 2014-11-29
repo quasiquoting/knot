@@ -1,6 +1,7 @@
 (function () {
     var _state = 'off';
     var _message = '';
+    
     function toggle_state() {
         if (_state == 'off') {
             _state == 'on';
@@ -12,6 +13,7 @@
     function get_state() {
         return _state;
     }
+    
     function set_message(message) {
         _message = message;
     }
@@ -24,5 +26,5 @@
         state: get_state,
         toggle_state: toggle_state};
     // This shouldn't be detected as a macro:
-    // <<not a macro>>
+    // ###### not a macro
 }());
