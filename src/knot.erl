@@ -3,6 +3,9 @@
 
 -module(knot).
 -compile(export_all).
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
 
 collect_to_eol(Input) ->
     collect_to_eol(Input, "").
@@ -193,13 +196,17 @@ write_file(Base_directory, File_name, Contents) ->
     Fn.
 process_file(File_name) ->
     Base_directory = filename:dirname(File_name),
-    Files = file_blocks(
-                unescape_blocks(
-                    expand_all_macros(
-                        concat_blocks(
+    Concatenated_code = concat_blocks(
                             unindent_blocks(
                                 all_code(
-                                    read_file(File_name))))))),
+                                    read_file(File_name)))),
+    Expanded_code = expand_all_macros(
+                        expand_all_macros(
+                            expand_all_macros(
+                                expand_all_macros(Concatenated_code)))),
+    Files = file_blocks(
+                unescape_blocks(Expanded_code)),
+
     write_file_blocks(Base_directory, Files).
 
 write_file_blocks(_Base_directory, []) ->
@@ -469,7 +476,8 @@ process_file_test() ->
     ok = process_file("test_files/process_file_test.md"),
     Expected = read_file("test_files/process_file_test.js.expected_output"),
     Actual = read_file("test_files/process_file_test.js") ++ "\n",
-    io:format("~p~n~p~n", [Expected, Actual]),
+    % ?debugVal(Expected),
+    % ?debugVal(Actual),
     Expected = Actual,
     file:delete("test_files/process_file_test.js").
 -endif.

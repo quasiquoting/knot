@@ -37,6 +37,9 @@ This is the layout of the module.
 
     -module(knot).
     -compile(export_all).
+    -ifdef(TEST).
+    -include_lib("eunit/include/eunit.hrl").
+    -endif.
 
     ###### functions
     ###### debugging
@@ -752,18 +755,24 @@ This gives us another markup requirement:
 
 ### Putting it All Together
 
-`process_file` will do everything!
+`process_file` will do everything! For nested macro expansion, I arbitrarily
+decided to do it four times. I'm not concerned about performance and it seems
+reasonable.
 
 ###### functions
     process_file(File_name) ->
         Base_directory = filename:dirname(File_name),
-        Files = file_blocks(
-                    unescape_blocks(
-                        expand_all_macros(
-                            concat_blocks(
+        Concatenated_code = concat_blocks(
                                 unindent_blocks(
                                     all_code(
-                                        read_file(File_name))))))),
+                                        read_file(File_name)))),
+        Expanded_code = expand_all_macros(
+                            expand_all_macros(
+                                expand_all_macros(
+                                    expand_all_macros(Concatenated_code)))),
+        Files = file_blocks(
+                    unescape_blocks(Expanded_code)),
+
         write_file_blocks(Base_directory, Files).
 
     write_file_blocks(_Base_directory, []) ->
@@ -778,7 +787,8 @@ This gives us another markup requirement:
         ok = process_file("test_files/process_file_test.md"),
         Expected = read_file("test_files/process_file_test.js.expected_output"),
         Actual = read_file("test_files/process_file_test.js") ++ "\n",
-        io:format("~p~n~p~n", [Expected, Actual]),
+        % ?debugVal(Expected),
+        % ?debugVal(Actual),
         Expected = Actual,
         file:delete("test_files/process_file_test.js").
 

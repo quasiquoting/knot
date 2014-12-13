@@ -288,13 +288,17 @@ write_file(Base_directory, File_name, Contents) ->
     Fn.
 process_file(File_name) ->
     Base_directory = filename:dirname(File_name),
-    Files = file_blocks(
-                unescape_blocks(
-                    expand_all_macros(
-                        concat_blocks(
+    Concatenated_code = concat_blocks(
                             unindent_blocks(
                                 all_code(
-                                    read_file(File_name))))))),
+                                    read_file(File_name)))),
+    Expanded_code = expand_all_macros(
+                        expand_all_macros(
+                            expand_all_macros(
+                                expand_all_macros(Concatenated_code)))),
+    Files = file_blocks(
+                unescape_blocks(Expanded_code)),
+
     write_file_blocks(Base_directory, Files).
 
 write_file_blocks(_Base_directory, []) ->

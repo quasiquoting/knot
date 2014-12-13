@@ -7,6 +7,7 @@ This is a very basic literate file as an initial test.
         ###### api
         // This shouldn't be detected as a macro:
         // \###### not a macro
+        ###### layer 1
     }());
 
 
@@ -57,3 +58,13 @@ Now we can provide an API to users of this library.
         message: get_message,
         state: get_state,
         toggle_state: toggle_state};
+
+
+###### layer 1
+    // ###### layer 2 ###### //
+
+###### layer 2
+    ###### layer 3 ######
+
+###### layer 3
+    deep macro expansion
