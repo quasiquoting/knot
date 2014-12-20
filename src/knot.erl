@@ -6,6 +6,7 @@
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
+-include_lib("kernel/include/file.hrl").
 
 collect_to_eol(Input) ->
     collect_to_eol(Input, "").
@@ -222,6 +223,42 @@ process_files([File | Files]) ->
     process_file(File),
     process_files(Files).
 
+file_modified_time(File_name) ->
+    {ok, Info} = file:read_file_info(File_name),
+    Info#file_info.mtime.
+modified_times(Files) ->
+    Fun = fun (X, A) ->
+        [{X, file_modified_time(X)} | A]
+    end,
+    lists:foldl(Fun, [], Files).
+watch(Files, Fun) ->
+    watch(Files, Fun, []).
+
+watch(Files, Fun, State) ->
+    Modified_times = modified_times(Files),
+    Changed_files = changed_files(Modified_times, State),
+
+    case length(Changed_files) > 0 of
+        true ->
+            io:format("Processing changed files: ~s~n", [string:join(Changed_files, ", ")]),
+            apply(Fun, [Changed_files]);
+        _ -> noop
+    end,
+
+    % wait
+    timer:sleep(timer:seconds(1)),
+
+    % loop
+    watch(Files, Fun, Modified_times).
+changed_files(A, B) ->
+    Fun = fun (X, Acc) ->
+        case proplists:get_value(X, A) =:= proplists:get_value(X, B) of
+            false ->
+                [X | Acc];
+            _ -> Acc
+        end
+    end,
+    lists:foldl(Fun, [], proplists:get_keys(A)).
 read_file(File_name) ->
     {ok, Binary} = file:read_file(File_name),
     binary_to_list(Binary).
@@ -480,4 +517,16 @@ process_file_test() ->
     % ?debugVal(Actual),
     Expected = Actual,
     file:delete("test_files/process_file_test.js").
+file_modified_time_test() ->
+    {Day, _} = calendar:local_time(),
+    {Day, _} = file_modified_time("knot.erl").
+
+modified_times_test() ->
+    Files = ["knot.beam", "knot.erl"],
+    Modified_times = modified_times(Files),
+
+    {Today, _} = calendar:local_time(),
+    {Today, _} = proplists:get_value("knot.beam", Modified_times),
+    {Today, _} = proplists:get_value("knot.erl", Modified_times).
+
 -endif.
