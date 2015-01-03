@@ -235,7 +235,7 @@ watch(Files, Fun) ->
     watch(Files, Fun, []).
 
 watch(Files, Fun, State) ->
-    Modified_times = modified_times(Files),
+    Modified_times = modified_times(existing_files(Files)),
     Changed_files = changed_files(Modified_times, State),
 
     case length(Changed_files) > 0 of
@@ -259,6 +259,8 @@ changed_files(A, B) ->
         end
     end,
     lists:foldl(Fun, [], proplists:get_keys(A)).
+existing_files(Files) ->
+    lists:filter(fun filelib:is_file/1, Files).
 read_file(File_name) ->
     {ok, Binary} = file:read_file(File_name),
     binary_to_list(Binary).
@@ -529,4 +531,8 @@ modified_times_test() ->
     {Today, _} = proplists:get_value("knot.beam", Modified_times),
     {Today, _} = proplists:get_value("knot.erl", Modified_times).
 
+existing_files_test() ->
+    Input = ["../knot.md", "i_will_never_exist.txt"],
+    Expected = ["../knot.md"],
+    Expected = existing_files(Input).
 -endif.

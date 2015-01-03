@@ -1023,7 +1023,7 @@ perform work. One will be applied to each file and another for all files.
         watch(Files, Fun, []).
 
     watch(Files, Fun, State) ->
-        Modified_times = modified_times(Files),
+        Modified_times = modified_times(existing_files(Files)),
         Changed_files = changed_files(Modified_times, State),
 
         case length(Changed_files) > 0 of
@@ -1075,3 +1075,23 @@ this fragment to provide it on the command line.
 ###### other usage descriptions
     The 'knot watch' usage will take a list of files. When a change is detected
     on any of the files, knot will automatically recompile them.
+
+The watch function was giving me trouble with vim. Vim deletes a file and
+recreates it from the swapped version. I don't recall the details of that, but
+basically the watch function doesn't work because the Erlang interpreter exits
+when attempt file operations on the file while it's deleted.
+
+I added an `existing_files` function call to the `watch` implementation above.
+I think that it would be easiest if we first filtered all of the non-existant
+files because there are multiple that will be performed later -- the check on
+modified time and then the read when processing files.
+
+###### functions
+    existing_files(Files) ->
+        lists:filter(fun filelib:is_file/1, Files).
+
+###### tests
+    existing_files_test() ->
+        Input = ["../knot.md", "i_will_never_exist.txt"],
+        Expected = ["../knot.md"],
+        Expected = existing_files(Input).

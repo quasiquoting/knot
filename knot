@@ -335,7 +335,7 @@ watch(Files, Fun) ->
     watch(Files, Fun, []).
 
 watch(Files, Fun, State) ->
-    Modified_times = modified_times(Files),
+    Modified_times = modified_times(existing_files(Files)),
     Changed_files = changed_files(Modified_times, State),
 
     case length(Changed_files) > 0 of
@@ -359,3 +359,5 @@ changed_files(A, B) ->
         end
     end,
     lists:foldl(Fun, [], proplists:get_keys(A)).
+existing_files(Files) ->
+    lists:filter(fun filelib:is_file/1, Files).
