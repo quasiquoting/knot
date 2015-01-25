@@ -208,21 +208,25 @@ process_file(File_name) ->
     Files = file_blocks(
                 unescape_blocks(Expanded_code)),
 
-    write_file_blocks(Base_directory, Files).
+    write_file_blocks(Base_directory, Files, []).
 
-write_file_blocks(_Base_directory, []) ->
-    ok;
+write_file_blocks(_Base_directory, [], Files_written) ->
+    lists:reverse(Files_written);
 
-write_file_blocks(Base_directory, [{[$f, $i, $l, $e, $: | File_name], Contents} | Rest]) ->
-    write_file(Base_directory, File_name, Contents),
-    write_file_blocks(Base_directory, Rest).
-process_files([]) ->
-    ok;
+write_file_blocks(Base_directory, [{[$f, $i, $l, $e, $: | File_name], Contents} | Rest], Files_written) ->
+    New_file = write_file(Base_directory, File_name, Contents),
+    write_file_blocks(Base_directory, Rest, [New_file | Files_written]).
+process_files(Files) ->
+    process_files(Files, []).
 
-process_files([File | Files]) ->
-    process_file(File),
-    process_files(Files).
+process_files([], Files_written) ->
+    % Files_written is a list of lists of strings. Strings are lists, too,
+    % so lists:flatten can't be used becuause it turns into a single
+    % string.
+    lists:concat(lists:reverse(Files_written));
 
+process_files([File | Files], Files_written) ->
+    process_files(Files, [process_file(File) | Files_written]).
 file_modified_time(File_name) ->
     {ok, Info} = file:read_file_info(File_name),
     Info#file_info.mtime.
@@ -240,7 +244,6 @@ watch(Files, Fun, State) ->
 
     case length(Changed_files) > 0 of
         true ->
-            io:format("Processing changed files: ~s~n", [string:join(Changed_files, ", ")]),
             apply(Fun, [Changed_files]);
         _ -> noop
     end,
@@ -512,13 +515,33 @@ write_file_test() ->
     file:delete(file_name("test_files", "test.txt")).
 
 process_file_test() ->
-    ok = process_file("test_files/process_file_test.md"),
+    ["test_files/process_file_test.js"] = process_file("test_files/process_file_test.md"),
     Expected = read_file("test_files/process_file_test.js.expected_output"),
     Actual = read_file("test_files/process_file_test.js") ++ "\n",
     % ?debugVal(Expected),
     % ?debugVal(Actual),
     Expected = Actual,
     file:delete("test_files/process_file_test.js").
+process_files_test() ->
+    Output_files = ["test_files/process_files_1_a.txt",
+                    "test_files/process_files_1_b.txt",
+                    "test_files/process_files_2_a.txt",
+                    "test_files/process_files_2_b.txt",
+                    "test_files/process_files_3_a.txt",
+                    "test_files/process_files_3_b.txt"],
+    Actual = process_files(["test_files/process_files_1.md",
+                            "test_files/process_files_2.md",
+                            "test_files/process_files_3.md"]),
+
+    true = lists:all(fun (X) ->
+                        lists:member(X, Output_files)
+                     end,
+                     Actual),
+
+    6 = length(Actual),
+
+    lists:map(fun file:delete/1, Actual).
+
 file_modified_time_test() ->
     {Day, _} = calendar:local_time(),
     {Day, _} = file_modified_time("knot.erl").

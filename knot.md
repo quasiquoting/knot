@@ -774,18 +774,18 @@ reasonable.
         Files = file_blocks(
                     unescape_blocks(Expanded_code)),
 
-        write_file_blocks(Base_directory, Files).
+        write_file_blocks(Base_directory, Files, []).
 
-    write_file_blocks(_Base_directory, []) ->
-        ok;
+    write_file_blocks(_Base_directory, [], Files_written) ->
+        lists:reverse(Files_written);
 
-    write_file_blocks(Base_directory, [{[$f, $i, $l, $e, $: | File_name], Contents} | Rest]) ->
-        write_file(Base_directory, File_name, Contents),
-        write_file_blocks(Base_directory, Rest).
+    write_file_blocks(Base_directory, [{[$f, $i, $l, $e, $: | File_name], Contents} | Rest], Files_written) ->
+        New_file = write_file(Base_directory, File_name, Contents),
+        write_file_blocks(Base_directory, Rest, [New_file | Files_written]).
 
 ###### tests
     process_file_test() ->
-        ok = process_file("test_files/process_file_test.md"),
+        ["test_files/process_file_test.js"] = process_file("test_files/process_file_test.md"),
         Expected = read_file("test_files/process_file_test.js.expected_output"),
         Actual = read_file("test_files/process_file_test.js") ++ "\n",
         % ?debugVal(Expected),
@@ -801,12 +801,44 @@ without returning the matched line break. But is this an issue? I'm not sure.
 Handle multiple files.
 
 ###### functions
-    process_files([]) ->
-        ok;
+    process_files(Files) ->
+        process_files(Files, []).
 
-    process_files([File | Files]) ->
-        process_file(File),
-        process_files(Files).
+    process_files([], Files_written) ->
+        % Files_written is a list of lists of strings. Strings are lists, too,
+        % so lists:flatten can't be used becuause it turns into a single
+        % string.
+        lists:concat(lists:reverse(Files_written));
+
+    process_files([File | Files], Files_written) ->
+        process_files(Files, [process_file(File) | Files_written]).
+
+**TODO**: The output of process_files in this test has `1_a` and `1_b`
+reversed. The parser only uses lists of tuples, and the source file has `a`
+before `b`. (Also, the other files come out ordered properly.) I don't *think*
+this is a problem; it only matters that the output is correct. There might be a
+bug, though. For now I will use `lists:member` to validate the output.
+
+###### tests
+    process_files_test() ->
+        Output_files = ["test_files/process_files_1_a.txt",
+                        "test_files/process_files_1_b.txt",
+                        "test_files/process_files_2_a.txt",
+                        "test_files/process_files_2_b.txt",
+                        "test_files/process_files_3_a.txt",
+                        "test_files/process_files_3_b.txt"],
+        Actual = process_files(["test_files/process_files_1.md",
+                                "test_files/process_files_2.md",
+                                "test_files/process_files_3.md"]),
+
+        true = lists:all(fun (X) ->
+                            lists:member(X, Output_files)
+                         end,
+                         Actual),
+
+        6 = length(Actual),
+
+        lists:map(fun file:delete/1, Actual).
 
 
 ### Packaging it in an `escript`.
@@ -1028,7 +1060,6 @@ perform work. One will be applied to each file and another for all files.
 
         case length(Changed_files) > 0 of
             true ->
-                io:format("Processing changed files: ~s~n", [string:join(Changed_files, ", ")]),
                 apply(Fun, [Changed_files]);
             _ -> noop
         end,
@@ -1067,7 +1098,18 @@ this fragment to provide it on the command line.
 
 ###### other escript entry points
     main(["watch" | Files]) ->
-        watch(Files, fun (Changed_files) -> process_files(Changed_files) end);
+        watch(Files,
+              fun (Changed_files) ->
+                Print = fun (X) -> io:format("~s~n", [X]) end,
+
+                io:format("~n----- Processing -----~n"),
+                lists:foreach(Print, Changed_files),
+
+                Output_files = process_files(Changed_files),
+
+                io:format("----- Output -----~n"),
+                lists:foreach(Print, Output_files)
+              end);
 
 ###### other usage
     knot watch [file]...
