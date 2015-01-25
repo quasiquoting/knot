@@ -109,7 +109,6 @@ print_unescaped_code(File_name) ->
                     unindent_blocks(
                         all_code(
                             read_file(File_name))))))).
-
 print_file_blocks(File_name) ->
     print_blocks(
         file_blocks(
@@ -277,7 +276,6 @@ expand_all_macros([], _Blocks, Acc) ->
 
 expand_all_macros([{Name, Code} | Rest], Blocks, Acc) ->
     expand_all_macros(Rest, Blocks, [{Name, expand_macros(Code, Blocks)} | Acc]).
-
 unescape(Code) ->
     re:replace(Code, "\\\\######", "######", [global, {return, list}]).
 unescape_blocks(Blocks) ->

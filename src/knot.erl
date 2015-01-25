@@ -166,7 +166,6 @@ expand_all_macros([], _Blocks, Acc) ->
 
 expand_all_macros([{Name, Code} | Rest], Blocks, Acc) ->
     expand_all_macros(Rest, Blocks, [{Name, expand_macros(Code, Blocks)} | Acc]).
-
 unescape(Code) ->
     re:replace(Code, "\\\\######", "######", [global, {return, list}]).
 unescape_blocks(Blocks) ->
@@ -308,7 +307,6 @@ print_unescaped_code(File_name) ->
                     unindent_blocks(
                         all_code(
                             read_file(File_name))))))).
-
 print_file_blocks(File_name) ->
     print_blocks(
         file_blocks(
@@ -324,11 +322,9 @@ collect_to_eol_test() ->
     {"", ""} = collect_to_eol(""),
     {"foo", "bar\nbaz"} = collect_to_eol("foo\nbar\nbaz"),
     {"foo", ""} = collect_to_eol("foo\n").
-
 collect_to_fence_test() ->
     {"foobar", ""} = collect_to_fence("foobar"),
     {"my\ncode\nhere", "\nmore input"} = collect_to_fence("my\ncode\nhere\n```\nmore input").
-
 collect_to_unindent_test() ->
     {"foobar", ""} = collect_to_unindent("foobar"),
     {"    my\n    code\n    here\n", "\nmy documentation"} = collect_to_unindent("    my\n    code\n    here\n\nmy documentation").
@@ -370,7 +366,6 @@ indented_collect_code_test() ->
                      "        ok.\n",
     Expected_rest = "\ndocumentation\n",
     {Expected_block, Expected_rest} = collect_code(Input).
-
 all_code_test() ->
     Input = "A sample document.\n"
             "\n"
@@ -412,7 +407,6 @@ all_code_no_intermediate_documentation_test() ->
                 {"another indented code block", "    Code 2, line 1.\n    Code 2, line 2.\n"}],
 
     Expected = all_code(Input).
-
 find_indentation_test() ->
     "" = find_indentation(""),
     "" = find_indentation("    \n\t  \n    \nsomething"),
@@ -439,7 +433,6 @@ unindent_blocks_test() ->
                 {"bar", "foo() ->\n    ok."}],
 
     Expected = unindent_blocks(Input).
-
 concat_blocks_test() ->
     Input = [{"foo", "FOO"},
              {"bar", "BAR"},
@@ -449,7 +442,6 @@ concat_blocks_test() ->
                 {"bar", "BAR"}],
 
     Expected = concat_blocks(Input).
-
 collect_to_macro_delimeter_test() ->
     {"foobar", ""} = collect_to_macro_delimeter("foobar"),
     {"    ", " my macro"} = collect_to_macro_delimeter("    ###### my macro"),
@@ -460,7 +452,6 @@ macro_test() ->
     nil = macro("foobar"),
     {"my macro", "    ", ""} = macro("    ###### my macro"),
     {"my macro", "    <li>", "</li>"} = macro("    <li>###### my macro ######</li>").
-
 expand_macros_test() ->
     Input_code = "\n"
                  "start\n"
@@ -470,7 +461,6 @@ expand_macros_test() ->
     Input_blocks = [{"things", "one\ntwo"}],
     Expected = "\nstart\none\ntwo\n- one -\n- two -\nend",
     Expected = expand_macros(Input_code, Input_blocks).
-
 expand_all_macros_test() ->
     Input = [{"first one", "First.\n###### list of things"},
              {"second one", "This...\n-###### list of things ######-\nis the second."},
@@ -483,7 +473,6 @@ expand_all_macros_test() ->
                 {"list of things", "one\ntwo"}],
 
     Expected = expand_all_macros(expand_all_macros(Input)).
-
 unescape_test() ->
     "foo\n    ###### not a macro\nbar" = unescape("foo\n    \\###### not a macro\nbar"),
     "- \\###### really not a macro \\###### -" = unescape("- \\\\###### really not a macro \\\\###### -"),
@@ -513,7 +502,6 @@ write_file_test() ->
     "test_files/test.txt" = write_file("test_files", "test.txt", "write_file_test\n"),
     {ok, <<"write_file_test\n">>} = file:read_file(file_name("test_files", "test.txt")),
     file:delete(file_name("test_files", "test.txt")).
-
 process_file_test() ->
     ["test_files/process_file_test.js"] = process_file("test_files/process_file_test.md"),
     Expected = read_file("test_files/process_file_test.js.expected_output"),
@@ -541,11 +529,9 @@ process_files_test() ->
     6 = length(Actual),
 
     lists:map(fun file:delete/1, Actual).
-
 file_modified_time_test() ->
     {Day, _} = calendar:local_time(),
     {Day, _} = file_modified_time("knot.erl").
-
 modified_times_test() ->
     Files = ["knot.beam", "knot.erl"],
     Modified_times = modified_times(Files),
@@ -553,7 +539,6 @@ modified_times_test() ->
     {Today, _} = calendar:local_time(),
     {Today, _} = proplists:get_value("knot.beam", Modified_times),
     {Today, _} = proplists:get_value("knot.erl", Modified_times).
-
 existing_files_test() ->
     Input = ["../knot.md", "i_will_never_exist.txt"],
     Expected = ["../knot.md"],
