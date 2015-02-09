@@ -39,7 +39,7 @@ collect_to_unindent("", Acc) ->
 collect_to_unindent([$\n | Rest], Acc) ->
     case re:run(Rest, "^\\S") of
         {match, _} ->
-            % Must put the line break back on to detect the next code block.
+            % Must put the line break back on to detect the next code section.
             {lists:reverse(Acc), [$\n | Rest]};
         nomatch ->
             collect_to_unindent(Rest, [$\n | Acc])
@@ -94,99 +94,99 @@ unindent(Code, Pattern, Lines) ->
     {Line, Rest} = collect_to_eol(Code),
     Unindented_line = re:replace(Line, Pattern, "", [{return, list}]),
     unindent(Rest, Pattern, [Unindented_line | Lines]).
-unindent_blocks(Blocks) ->
+unindent_sections(Sections) ->
     lists:map(fun ({Name, Code}) ->
                   {Name, unindent(Code)}
               end,
-              Blocks).
-concat_blocks(Blocks) ->
-    Join_blocks = fun (Key, Acc) ->
-        Values = proplists:get_all_values(Key, Blocks),
+              Sections).
+concat_sections(Sections) ->
+    Join_sections = fun (Key, Acc) ->
+        Values = proplists:get_all_values(Key, Sections),
         Joined = string:join(Values, "\n"),
         [{Key, Joined} | Acc]
     end,
 
-    lists:foldr(Join_blocks, [], proplists:get_keys(Blocks)).
-collect_to_macro_delimeter(Line) ->
-    collect_to_macro_delimeter(Line, "").
+    lists:foldr(Join_sections, [], proplists:get_keys(Sections)).
+collect_to_section_delimeter(Line) ->
+    collect_to_section_delimeter(Line, "").
 
-collect_to_macro_delimeter("", Acc) ->
+collect_to_section_delimeter("", Acc) ->
     {lists:reverse(Acc), ""};
 
 % Ignores escaped delimeters.
-collect_to_macro_delimeter([$\\, $#, $#, $#, $#, $#, $# | Rest], Acc) ->
-    collect_to_macro_delimeter(Rest, [$#, $#, $#, $#, $#, $#, $\\ | Acc]);
+collect_to_section_delimeter([$\\, $#, $#, $#, $#, $#, $# | Rest], Acc) ->
+    collect_to_section_delimeter(Rest, [$#, $#, $#, $#, $#, $#, $\\ | Acc]);
 
-collect_to_macro_delimeter([$#, $#, $#, $#, $#, $# | Rest], Acc) ->
+collect_to_section_delimeter([$#, $#, $#, $#, $#, $# | Rest], Acc) ->
     {lists:reverse(Acc), Rest};
 
-collect_to_macro_delimeter([Char | Rest], Acc) ->
-    collect_to_macro_delimeter(Rest, [Char | Acc]).
-macro(Line) ->
-    case collect_to_macro_delimeter(Line) of
+collect_to_section_delimeter([Char | Rest], Acc) ->
+    collect_to_section_delimeter(Rest, [Char | Acc]).
+split_section(Line) ->
+    case collect_to_section_delimeter(Line) of
         {_, ""} ->
-            % No macro in this line.
+            % No section in this line.
             nil;
 
         {Prefix, Rest} ->
-            % Rest contains the macro name and, potentially, another
+            % Rest contains the section name and, potentially, another
             % delimeter before the suffix.
-            {Padded_name, Suffix} = collect_to_macro_delimeter(Rest),
+            {Padded_name, Suffix} = collect_to_section_delimeter(Rest),
             {string:strip(Padded_name), Prefix, Suffix}
     end.
-expand_macros(Code, Blocks) ->
-    expand_macros(Code, Blocks, []).
+expand_sections(Code, Sections) ->
+    expand_sections(Code, Sections, []).
 
-expand_macros("", _Blocks, Acc) ->
+expand_sections("", _Sections, Acc) ->
     string:join(lists:reverse(Acc), "\n");
 
-expand_macros(Code, Blocks, Acc) ->
+expand_sections(Code, Sections, Acc) ->
     {Line, Rest} = collect_to_eol(Code),
-    case macro(Line) of
+    case split_section(Line) of
         nil ->
-            expand_macros(Rest, Blocks, [Line | Acc]);
+            expand_sections(Rest, Sections, [Line | Acc]);
 
         {Name, Prefix, Suffix} ->
-            case proplists:get_value(Name, Blocks) of
+            case proplists:get_value(Name, Sections) of
                 undefined ->
-                    io:format("Warning: code block named ~p not found.~n", [Name]),
-                    expand_macros(Rest, Blocks, [Prefix ++ Suffix| Acc]);
+                    io:format("Warning: code section named ~p not found.~n", [Name]),
+                    expand_sections(Rest, Sections, [Prefix ++ Suffix| Acc]);
 
                 Code_to_insert ->
                     New_lines = re:split(Code_to_insert, "\n", [{return, list}]),
                     Wrapped = lists:map(fun (X) -> Prefix ++ X ++ Suffix end, New_lines),
-                    expand_macros(Rest, Blocks, [string:join(Wrapped, "\n") | Acc])
+                    expand_sections(Rest, Sections, [string:join(Wrapped, "\n") | Acc])
             end
     end.
-expand_all_macros(Blocks) ->
-    expand_all_macros(Blocks, Blocks, []).
+expand_all_sections(Sections) ->
+    expand_all_sections(Sections, Sections, []).
 
-expand_all_macros([], _Blocks, Acc) ->
+expand_all_sections([], _Sections, Acc) ->
     lists:reverse(Acc);
 
-expand_all_macros([{Name, Code} | Rest], Blocks, Acc) ->
-    expand_all_macros(Rest, Blocks, [{Name, expand_macros(Code, Blocks)} | Acc]).
+expand_all_sections([{Name, Code} | Rest], Sections, Acc) ->
+    expand_all_sections(Rest, Sections, [{Name, expand_sections(Code, Sections)} | Acc]).
 unescape(Code) ->
     re:replace(Code, "\\\\######", "######", [global, {return, list}]).
-unescape_blocks(Blocks) ->
-    unescape_blocks(Blocks, []).
+unescape_sections(Sections) ->
+    unescape_sections(Sections, []).
 
-unescape_blocks([], Acc) ->
+unescape_sections([], Acc) ->
     lists:reverse(Acc);
 
-unescape_blocks([{Name, Code} | Rest], Acc) ->
-    unescape_blocks(Rest, [{Name, unescape(Code)} | Acc]).
-file_blocks(Blocks) ->
-    file_blocks(Blocks, []).
+unescape_sections([{Name, Code} | Rest], Acc) ->
+    unescape_sections(Rest, [{Name, unescape(Code)} | Acc]).
+file_sections(Sections) ->
+    file_sections(Sections, []).
 
-file_blocks([], Acc) ->
+file_sections([], Acc) ->
     lists:reverse(Acc);
 
-file_blocks([{[$f, $i, $l, $e, $: | _] = Name, Code} | Rest], Acc) ->
-    file_blocks(Rest, [{Name, Code} | Acc]);
+file_sections([{[$f, $i, $l, $e, $: | _] = Name, Code} | Rest], Acc) ->
+    file_sections(Rest, [{Name, Code} | Acc]);
 
-file_blocks([_ | Rest], Acc) ->
-    file_blocks(Rest, Acc).
+file_sections([_ | Rest], Acc) ->
+    file_sections(Rest, Acc).
 file_name(Base_directory, File_name) ->
     filename:nativename(filename:absname_join(Base_directory, File_name)).
 
@@ -196,25 +196,25 @@ write_file(Base_directory, File_name, Contents) ->
     Fn.
 process_file(File_name) ->
     Base_directory = filename:dirname(File_name),
-    Concatenated_code = concat_blocks(
-                            unindent_blocks(
+    Concatenated_code = concat_sections(
+                            unindent_sections(
                                 all_code(
                                     read_file(File_name)))),
-    Expanded_code = expand_all_macros(
-                        expand_all_macros(
-                            expand_all_macros(
-                                expand_all_macros(Concatenated_code)))),
-    Files = file_blocks(
-                unescape_blocks(Expanded_code)),
+    Expanded_code = expand_all_sections(
+                        expand_all_sections(
+                            expand_all_sections(
+                                expand_all_sections(Concatenated_code)))),
+    Files = file_sections(
+                unescape_sections(Expanded_code)),
 
-    write_file_blocks(Base_directory, Files, []).
+    write_file_sections(Base_directory, Files, []).
 
-write_file_blocks(_Base_directory, [], Files_written) ->
+write_file_sections(_Base_directory, [], Files_written) ->
     lists:reverse(Files_written);
 
-write_file_blocks(Base_directory, [{[$f, $i, $l, $e, $: | File_name], Contents} | Rest], Files_written) ->
+write_file_sections(Base_directory, [{[$f, $i, $l, $e, $: | File_name], Contents} | Rest], Files_written) ->
     New_file = write_file(Base_directory, File_name, Contents),
-    write_file_blocks(Base_directory, Rest, [New_file | Files_written]).
+    write_file_sections(Base_directory, Rest, [New_file | Files_written]).
 process_files(Files) ->
     process_files(Files, []).
 
@@ -267,53 +267,53 @@ read_file(File_name) ->
     {ok, Binary} = file:read_file(File_name),
     binary_to_list(Binary).
 
-print_blocks(Blocks) ->
+print_sections(Sections) ->
     lists:foreach(fun ({Name, Code}) ->
                       io:format("~s~n-----~n~s~n-----~n~n",
                                 [Name, Code])
                   end,
-                  Blocks).
+                  Sections).
 print_code(File_name) ->
-    print_blocks(
+    print_sections(
         all_code(
             read_file(File_name))).
 
 print_unindented_code(File_name) ->
-    print_blocks(
-        unindent_blocks(
+    print_sections(
+        unindent_sections(
             all_code(
                 read_file(File_name)))).
 
 print_concatenated_code(File_name) ->
-    print_blocks(
-        concat_blocks(
-            unindent_blocks(
+    print_sections(
+        concat_sections(
+            unindent_sections(
                 all_code(
                     read_file(File_name))))).
 
 print_expanded_code(File_name) ->
-    print_blocks(
-        expand_all_macros(
-            concat_blocks(
-                unindent_blocks(
+    print_sections(
+        expand_all_sections(
+            concat_sections(
+                unindent_sections(
                     all_code(
                         read_file(File_name)))))).
 
 print_unescaped_code(File_name) ->
-    print_blocks(
-        unescape_blocks(
-            expand_all_macros(
-                concat_blocks(
-                    unindent_blocks(
+    print_sections(
+        unescape_sections(
+            expand_all_sections(
+                concat_sections(
+                    unindent_sections(
                         all_code(
                             read_file(File_name))))))).
-print_file_blocks(File_name) ->
-    print_blocks(
-        file_blocks(
-            unescape_blocks(
-                expand_all_macros(
-                    concat_blocks(
-                        unindent_blocks(
+print_file_sections(File_name) ->
+    print_sections(
+        file_sections(
+            unescape_sections(
+                expand_all_sections(
+                    concat_sections(
+                        unindent_sections(
                             all_code(
                                 read_file(File_name)))))))).
 
@@ -339,14 +339,14 @@ fenced_collect_code_test() ->
             "```\n"
             "\n"
             "documentation\n",
-    Expected_block = "\n"
+    Expected_section = "\n"
                      "-module(foobar).\n"
                      "-compile(export_all).\n"
                      "\n"
                      "foo() ->\n"
                      "    ok.",
     Expected_rest = "\n\ndocumentation\n",
-    {Expected_block, Expected_rest} = collect_code(Input).
+    {Expected_section, Expected_rest} = collect_code(Input).
 
 
 indented_collect_code_test() ->
@@ -358,25 +358,25 @@ indented_collect_code_test() ->
             "        ok.\n"
             "\n"
             "documentation\n",
-    Expected_block = "\n"
+    Expected_section = "\n"
                      "    -module(foobar).\n"
                      "    -compile(export_all).\n"
                      "\n"
                      "    foo() ->\n"
                      "        ok.\n",
     Expected_rest = "\ndocumentation\n",
-    {Expected_block, Expected_rest} = collect_code(Input).
+    {Expected_section, Expected_rest} = collect_code(Input).
 all_code_test() ->
     Input = "A sample document.\n"
             "\n"
-            "###### indented code block\n"
+            "###### indented code section\n"
             "\n"
             "    Code 1, line 1.\n"
             "    Code 1, line 2.\n"
             "\n"
             "More documentation.\n"
             "\n"
-            "###### fenced code block\n"
+            "###### fenced code section\n"
             "```erlang\n"
             "Code 2, line 1.\n"
             "Code 2, line 2.\n"
@@ -384,27 +384,27 @@ all_code_test() ->
             "\n"
             "End of sample document.\n",
 
-    Expected = [{"indented code block", "\n    Code 1, line 1.\n    Code 1, line 2.\n"},
-                {"fenced code block", "Code 2, line 1.\nCode 2, line 2."}],
+    Expected = [{"indented code section", "\n    Code 1, line 1.\n    Code 1, line 2.\n"},
+                {"fenced code section", "Code 2, line 1.\nCode 2, line 2."}],
 
     Expected = all_code(Input).
 
 all_code_no_intermediate_documentation_test() ->
     Input = "A sample document.\n"
             "\n"
-            "###### indented code block\n"
+            "###### indented code section\n"
             "\n"
             "    Code 1, line 1.\n"
             "    Code 1, line 2.\n"
             "\n"
-            "###### another indented code block\n"
+            "###### another indented code section\n"
             "    Code 2, line 1.\n"
             "    Code 2, line 2.\n"
             "\n"
             "The end.\n",
 
-    Expected = [{"indented code block", "\n    Code 1, line 1.\n    Code 1, line 2.\n"},
-                {"another indented code block", "    Code 2, line 1.\n    Code 2, line 2.\n"}],
+    Expected = [{"indented code section", "\n    Code 1, line 1.\n    Code 1, line 2.\n"},
+                {"another indented code section", "    Code 2, line 1.\n    Code 2, line 2.\n"}],
 
     Expected = all_code(Input).
 find_indentation_test() ->
@@ -425,15 +425,15 @@ unindent_tabs_test() ->
     Input = "\n\tfoo() ->\n\t\tok.\n",
     Expected = "\nfoo() ->\n\tok.",
     Expected = unindent(Input).
-unindent_blocks_test() ->
+unindent_sections_test() ->
     Input = [{"foo", "\tfoo() ->\n\t\tok."},
              {"bar", "    foo() ->\n        ok."}],
 
     Expected = [{"foo", "foo() ->\n\tok."},
                 {"bar", "foo() ->\n    ok."}],
 
-    Expected = unindent_blocks(Input).
-concat_blocks_test() ->
+    Expected = unindent_sections(Input).
+concat_sections_test() ->
     Input = [{"foo", "FOO"},
              {"bar", "BAR"},
              {"foo", "FOO"}],
@@ -441,28 +441,28 @@ concat_blocks_test() ->
     Expected = [{"foo", "FOO\nFOO"},
                 {"bar", "BAR"}],
 
-    Expected = concat_blocks(Input).
-collect_to_macro_delimeter_test() ->
-    {"foobar", ""} = collect_to_macro_delimeter("foobar"),
-    {"    ", " my macro"} = collect_to_macro_delimeter("    ###### my macro"),
-    {"- ", " my macro ###### -"} = collect_to_macro_delimeter("- ###### my macro ###### -"),
-    {"my macro ", " -"} = collect_to_macro_delimeter("my macro ###### -"),
-    {"\\###### not a macro", ""} = collect_to_macro_delimeter("\\###### not a macro").
-macro_test() ->
-    nil = macro("foobar"),
-    {"my macro", "    ", ""} = macro("    ###### my macro"),
-    {"my macro", "    <li>", "</li>"} = macro("    <li>###### my macro ######</li>").
-expand_macros_test() ->
+    Expected = concat_sections(Input).
+collect_to_section_delimeter_test() ->
+    {"foobar", ""} = collect_to_section_delimeter("foobar"),
+    {"    ", " my section"} = collect_to_section_delimeter("    ###### my section"),
+    {"- ", " my section ###### -"} = collect_to_section_delimeter("- ###### my section ###### -"),
+    {"my section ", " -"} = collect_to_section_delimeter("my section ###### -"),
+    {"\\###### not a section", ""} = collect_to_section_delimeter("\\###### not a section").
+section_test() ->
+    nil = split_section("foobar"),
+    {"my section", "    ", ""} = split_section("    ###### my section"),
+    {"my section", "    <li>", "</li>"} = split_section("    <li>###### my section ######</li>").
+expand_sections_test() ->
     Input_code = "\n"
                  "start\n"
                  "###### things\n"
                  "- ###### things ###### -\n"
                  "    ###### unused\n"
                  "end\n",
-    Input_blocks = [{"things", "one\ntwo"}],
+    Input_sections= [{"things", "one\ntwo"}],
     Expected = "\nstart\none\ntwo\n- one -\n- two -\n    \nend",
-    Expected = expand_macros(Input_code, Input_blocks).
-expand_all_macros_test() ->
+    Expected = expand_sections(Input_code, Input_sections).
+expand_all_sections_test() ->
     Input = [{"first one", "First.\n###### list of things"},
              {"second one", "This...\n-###### list of things ######-\nis the second."},
              {"All the things!", "###### first one ######\n* ###### second one ###### *\nDone."},
@@ -473,12 +473,12 @@ expand_all_macros_test() ->
                 {"All the things!", "First.\none\ntwo\n* This... *\n* -one- *\n* -two- *\n* is the second. *\nDone."},
                 {"list of things", "one\ntwo"}],
 
-    Expected = expand_all_macros(expand_all_macros(Input)).
+    Expected = expand_all_sections(expand_all_sections(Input)).
 unescape_test() ->
-    "foo\n    ###### not a macro\nbar" = unescape("foo\n    \\###### not a macro\nbar"),
-    "- \\###### really not a macro \\###### -" = unescape("- \\\\###### really not a macro \\\\###### -"),
+    "foo\n    ###### not a section\nbar" = unescape("foo\n    \\###### not a section\nbar"),
+    "- \\###### really not a section \\###### -" = unescape("- \\\\###### really not a section \\\\###### -"),
     "###### h6 of another Markdown document ######" = unescape("\\###### h6 of another Markdown document \\######").
-unescape_blocks_test() ->
+unescape_sections_test() ->
     Input = [{"foo", "\\######"},
              {"bar", "bar"},
              {"baz", "\\###### h6 of another Markdown document \\######"}],
@@ -487,14 +487,14 @@ unescape_blocks_test() ->
                 {"bar", "bar"},
                 {"baz", "###### h6 of another Markdown document ######"}],
 
-    Expected = unescape_blocks(Input).
-file_blocks_test() ->
+    Expected = unescape_sections(Input).
+file_sections_test() ->
     Input = [{"file:a", "a"},
              {"not a file", "not a file"},
              {"file:b", "b"}],
     Expected = [{"file:a", "a"},
                 {"file:b", "b"}],
-    Expected = file_blocks(Input).
+    Expected = file_sections(Input).
 file_name_test() ->
     "test_files/foobar.txt" = file_name("test_files", "foobar.txt"),
     "/path/to/repository/src/knot.erl" = file_name("/path/to/repository", "src/knot.erl").

@@ -55,7 +55,7 @@ This is the layout of the module.
 ```
 
 
-### Reading in Code Blocks
+### Reading in Code Sections
 
 Unlike some other literate programming tools, we don't weave documentation
 together. So the first thing we need to do is divide up an input string into
@@ -135,7 +135,7 @@ collect_to_unindent("", Acc) ->
 collect_to_unindent([$\n | Rest], Acc) ->
     case re:run(Rest, "^\\S") of
         {match, _} ->
-            % Must put the line break back on to detect the next code block.
+            % Must put the line break back on to detect the next code section.
             {lists:reverse(Acc), [$\n | Rest]};
         nomatch ->
             collect_to_unindent(Rest, [$\n | Acc])
@@ -153,18 +153,18 @@ collect_to_unindent_test() ->
 ```
 
 It's important that `collect_to_unindent` doesn't consume the matched line
-break. In cases where one code block immediately follows another, we need the
-line break to detect the start of the next block. See `all_code` for the
+break. In cases where one code section immediately follows another, we need the
+line break to detect the start of the next section. See `all_code` for the
 pattern match that requires that.
 
 
 #### collect_code
 
-Now we can collect all the code blocks in a literate document. This function
+Now we can collect all the code sections in a literate document. This function
 will establish the following markup conventions.
 
 > If you use GitHub Flavored Markdown's [fenced code blocks][], then the fence
-> must start on the line immediately after the code block H6.
+> must start on the line immediately after the code section H6.
 >
 > Otherwise, the code must be indented and will end right before the first line
 > that doesn't start with white space.
@@ -195,14 +195,14 @@ fenced_collect_code_test() ->
             "```\n"
             "\n"
             "documentation\n",
-    Expected_block = "\n"
+    Expected_section = "\n"
                      "-module(foobar).\n"
                      "-compile(export_all).\n"
                      "\n"
                      "foo() ->\n"
                      "    ok.",
     Expected_rest = "\n\ndocumentation\n",
-    {Expected_block, Expected_rest} = collect_code(Input).
+    {Expected_section, Expected_rest} = collect_code(Input).
 
 
 indented_collect_code_test() ->
@@ -214,23 +214,23 @@ indented_collect_code_test() ->
             "        ok.\n"
             "\n"
             "documentation\n",
-    Expected_block = "\n"
+    Expected_section = "\n"
                      "    -module(foobar).\n"
                      "    -compile(export_all).\n"
                      "\n"
                      "    foo() ->\n"
                      "        ok.\n",
     Expected_rest = "\ndocumentation\n",
-    {Expected_block, Expected_rest} = collect_code(Input).
+    {Expected_section, Expected_rest} = collect_code(Input).
 ```
 
 
 #### all_code
 
-This will return all code blocks from the input. This establishes the markup
+This will return all code section from the input. This establishes the markup
 conventions that:
 
-> An H6 in the leading `#` style marks a code block. For example, to output a
+> An H6 in the leading `#` style marks a code section. For example, to output a
 > file: `###### file:src/knot.erl`.
 
 
@@ -256,14 +256,14 @@ all_code([_ | Rest], Acc) ->
 all_code_test() ->
     Input = "A sample document.\n"
             "\n"
-            "\###### indented code block\n"
+            "\###### indented code section\n"
             "\n"
             "    Code 1, line 1.\n"
             "    Code 1, line 2.\n"
             "\n"
             "More documentation.\n"
             "\n"
-            "\###### fenced code block\n"
+            "\###### fenced code section\n"
             "```erlang\n"
             "Code 2, line 1.\n"
             "Code 2, line 2.\n"
@@ -271,27 +271,27 @@ all_code_test() ->
             "\n"
             "End of sample document.\n",
 
-    Expected = [{"indented code block", "\n    Code 1, line 1.\n    Code 1, line 2.\n"},
-                {"fenced code block", "Code 2, line 1.\nCode 2, line 2."}],
+    Expected = [{"indented code section", "\n    Code 1, line 1.\n    Code 1, line 2.\n"},
+                {"fenced code section", "Code 2, line 1.\nCode 2, line 2."}],
 
     Expected = all_code(Input).
 
 all_code_no_intermediate_documentation_test() ->
     Input = "A sample document.\n"
             "\n"
-            "\###### indented code block\n"
+            "\###### indented code section\n"
             "\n"
             "    Code 1, line 1.\n"
             "    Code 1, line 2.\n"
             "\n"
-            "\###### another indented code block\n"
+            "\###### another indented code section\n"
             "    Code 2, line 1.\n"
             "    Code 2, line 2.\n"
             "\n"
             "The end.\n",
 
-    Expected = [{"indented code block", "\n    Code 1, line 1.\n    Code 1, line 2.\n"},
-                {"another indented code block", "    Code 2, line 1.\n    Code 2, line 2.\n"}],
+    Expected = [{"indented code section", "\n    Code 1, line 1.\n    Code 1, line 2.\n"},
+                {"another indented code section", "    Code 2, line 1.\n    Code 2, line 2.\n"}],
 
     Expected = all_code(Input).
 ```
@@ -299,11 +299,11 @@ all_code_no_intermediate_documentation_test() ->
 
 ### Processing
 
-Now that we've got the code blocks we can process them. We need to:
+Now that we've got the code sections we can process them. We need to:
 
 1. Unindent the code.
-1. Concatenate blocks.
-1. Expand macros.
+1. Concatenate sections.
+1. Expand sections.
 1. Unescape escaped sequences.
 
 
@@ -390,49 +390,49 @@ unindent_tabs_test() ->
 **TODO**: The `collect_to_eol` is causing the output from `unindent` to strip
 the trailing line. Try and figure out if this is an issue.
 
-And apply it to all blocks.
+And apply it to all sections.
 
 ###### functions
 ```erlang
-unindent_blocks(Blocks) ->
+unindent_sections(Sections) ->
     lists:map(fun ({Name, Code}) ->
                   {Name, unindent(Code)}
               end,
-              Blocks).
+              Sections).
 ```
 
 ###### tests
 ```erlang
-unindent_blocks_test() ->
+unindent_sections_test() ->
     Input = [{"foo", "\tfoo() ->\n\t\tok."},
              {"bar", "    foo() ->\n        ok."}],
 
     Expected = [{"foo", "foo() ->\n\tok."},
                 {"bar", "foo() ->\n    ok."}],
 
-    Expected = unindent_blocks(Input).
+    Expected = unindent_sections(Input).
 ```
 
 
-#### Concatenate Blocks
+#### Concatenate Sections
 
-When blocks of code have the same name they need to be concatenated.
+When sections of code have the same name they need to be concatenated.
 
 ###### functions
 ```erlang
-concat_blocks(Blocks) ->
-    Join_blocks = fun (Key, Acc) ->
-        Values = proplists:get_all_values(Key, Blocks),
+concat_sections(Sections) ->
+    Join_sections = fun (Key, Acc) ->
+        Values = proplists:get_all_values(Key, Sections),
         Joined = string:join(Values, "\n"),
         [{Key, Joined} | Acc]
     end,
 
-    lists:foldr(Join_blocks, [], proplists:get_keys(Blocks)).
+    lists:foldr(Join_sections, [], proplists:get_keys(Sections)).
 ```
 
 ###### tests
 ```erlang
-concat_blocks_test() ->
+concat_sections_test() ->
     Input = [{"foo", "FOO"},
              {"bar", "BAR"},
              {"foo", "FOO"}],
@@ -440,22 +440,22 @@ concat_blocks_test() ->
     Expected = [{"foo", "FOO\nFOO"},
                 {"bar", "BAR"}],
 
-    Expected = concat_blocks(Input).
+    Expected = concat_sections(Input).
 ```
 
 
-#### Expand Macros
+#### Expand Sections
 
-In other literate programming tools, the expanded macro will follow the
+In other literate programming tools, the expanded section will follow the
 indentation of the line. I want to do something a little different. I want a
-code block like this
+code section like this
 
     This is a list of things.
     <ul>
         <li>###### list of elements ######</li>
     </ul>
 
-and another block like this
+and another section like this
 
     one
     two
@@ -474,80 +474,80 @@ I decided I wanted to do this when I was using [noweb][] to assemble a Makefile
 and wanted to assemble inline bash scripts and I had to have ` \` as a suffix
 to every line. It would have been elegant to have the usage above.
 
-I did a version of this where the macros were identified with regex. The
-pattern was ugly and long. Then I wanted to use backslash to escape the macro
+I did a version of this where the sections were identified with regex. The
+pattern was ugly and long. Then I wanted to use backslash to escape the section
 delimeter. It was too hard; it would only piss me off when I came back to it
 later.
 
-So, I'll start with a `collect` function that splits a line at a macro
+So, I'll start with a `collect` function that splits a line at a section
 delimeter.
 
 This establishes a markup requirement.
 
-> Any sequence of 6 `#` in a code block that are not to be expanded must be
+> Any sequence of 6 `#` in a code section that are not to be expanded must be
 > escaped with a leading backslash: `\######`.
 
 ###### functions
 ```erlang
-collect_to_macro_delimeter(Line) ->
-    collect_to_macro_delimeter(Line, "").
+collect_to_section_delimeter(Line) ->
+    collect_to_section_delimeter(Line, "").
 
-collect_to_macro_delimeter("", Acc) ->
+collect_to_section_delimeter("", Acc) ->
     {lists:reverse(Acc), ""};
 
 % Ignores escaped delimeters.
-collect_to_macro_delimeter([$\\, $#, $#, $#, $#, $#, $# | Rest], Acc) ->
-    collect_to_macro_delimeter(Rest, [$#, $#, $#, $#, $#, $#, $\\ | Acc]);
+collect_to_section_delimeter([$\\, $#, $#, $#, $#, $#, $# | Rest], Acc) ->
+    collect_to_section_delimeter(Rest, [$#, $#, $#, $#, $#, $#, $\\ | Acc]);
 
-collect_to_macro_delimeter([$#, $#, $#, $#, $#, $# | Rest], Acc) ->
+collect_to_section_delimeter([$#, $#, $#, $#, $#, $# | Rest], Acc) ->
     {lists:reverse(Acc), Rest};
 
-collect_to_macro_delimeter([Char | Rest], Acc) ->
-    collect_to_macro_delimeter(Rest, [Char | Acc]).
+collect_to_section_delimeter([Char | Rest], Acc) ->
+    collect_to_section_delimeter(Rest, [Char | Acc]).
 ```
 
 ###### tests
 ```erlang
-collect_to_macro_delimeter_test() ->
-    {"foobar", ""} = collect_to_macro_delimeter("foobar"),
-    {"    ", " my macro"} = collect_to_macro_delimeter("    \###### my macro"),
-    {"- ", " my macro \###### -"} = collect_to_macro_delimeter("- \###### my macro \###### -"),
-    {"my macro ", " -"} = collect_to_macro_delimeter("my macro \###### -"),
-    {"\\\###### not a macro", ""} = collect_to_macro_delimeter("\\\###### not a macro").
+collect_to_section_delimeter_test() ->
+    {"foobar", ""} = collect_to_section_delimeter("foobar"),
+    {"    ", " my section"} = collect_to_section_delimeter("    \###### my section"),
+    {"- ", " my section \###### -"} = collect_to_section_delimeter("- \###### my section \###### -"),
+    {"my section ", " -"} = collect_to_section_delimeter("my section \###### -"),
+    {"\\\###### not a section", ""} = collect_to_section_delimeter("\\\###### not a section").
 ```
 
-And now `macro` will return `nil` or a three-tuple of `{Name, Prefix, Suffix}`
+And now `section` will return `nil` or a three-tuple of `{Name, Prefix, Suffix}`
 and establishes a markup convention that
 
-> Macros with a trailing delimeter will be expanded with the line's prefix and
-> suffix.
+> Sections with a trailing delimeter will be expanded with the line's prefix
+> and suffix.
 
 ###### functions
 ```erlang
-macro(Line) ->
-    case collect_to_macro_delimeter(Line) of
+split_section(Line) ->
+    case collect_to_section_delimeter(Line) of
         {_, ""} ->
-            % No macro in this line.
+            % No section in this line.
             nil;
 
         {Prefix, Rest} ->
-            % Rest contains the macro name and, potentially, another
+            % Rest contains the section name and, potentially, another
             % delimeter before the suffix.
-            {Padded_name, Suffix} = collect_to_macro_delimeter(Rest),
+            {Padded_name, Suffix} = collect_to_section_delimeter(Rest),
             {string:strip(Padded_name), Prefix, Suffix}
     end.
 ```
 
 ###### tests
 ```erlang
-macro_test() ->
-    nil = macro("foobar"),
-    {"my macro", "    ", ""} = macro("    \###### my macro"),
-    {"my macro", "    <li>", "</li>"} = macro("    <li>\###### my macro \######</li>").
+section_test() ->
+    nil = split_section("foobar"),
+    {"my section", "    ", ""} = split_section("    \###### my section"),
+    {"my section", "    <li>", "</li>"} = split_section("    <li>\###### my section \######</li>").
 ```
 
 
-With `expand_macros`, a source file like this
+With `expand_sections`, a source file like this
 
     ###### my code
         ###### things
@@ -566,65 +566,65 @@ will expand to
 
 ###### functions
 ```erlang
-expand_macros(Code, Blocks) ->
-    expand_macros(Code, Blocks, []).
+expand_sections(Code, Sections) ->
+    expand_sections(Code, Sections, []).
 
-expand_macros("", _Blocks, Acc) ->
+expand_sections("", _Sections, Acc) ->
     string:join(lists:reverse(Acc), "\n");
 
-expand_macros(Code, Blocks, Acc) ->
+expand_sections(Code, Sections, Acc) ->
     {Line, Rest} = collect_to_eol(Code),
-    case macro(Line) of
+    case split_section(Line) of
         nil ->
-            expand_macros(Rest, Blocks, [Line | Acc]);
+            expand_sections(Rest, Sections, [Line | Acc]);
 
         {Name, Prefix, Suffix} ->
-            case proplists:get_value(Name, Blocks) of
+            case proplists:get_value(Name, Sections) of
                 undefined ->
-                    io:format("Warning: code block named ~p not found.~n", [Name]),
-                    expand_macros(Rest, Blocks, [Prefix ++ Suffix| Acc]);
+                    io:format("Warning: code section named ~p not found.~n", [Name]),
+                    expand_sections(Rest, Sections, [Prefix ++ Suffix| Acc]);
 
                 Code_to_insert ->
                     New_lines = re:split(Code_to_insert, "\n", [{return, list}]),
                     Wrapped = lists:map(fun (X) -> Prefix ++ X ++ Suffix end, New_lines),
-                    expand_macros(Rest, Blocks, [string:join(Wrapped, "\n") | Acc])
+                    expand_sections(Rest, Sections, [string:join(Wrapped, "\n") | Acc])
             end
     end.
 ```
 
 ###### tests
 ```erlang
-expand_macros_test() ->
+expand_sections_test() ->
     Input_code = "\n"
                  "start\n"
                  "\###### things\n"
                  "- \###### things \###### -\n"
                  "    \###### unused\n"
                  "end\n",
-    Input_blocks = [{"things", "one\ntwo"}],
+    Input_sections= [{"things", "one\ntwo"}],
     Expected = "\nstart\none\ntwo\n- one -\n- two -\n    \nend",
-    Expected = expand_macros(Input_code, Input_blocks).
+    Expected = expand_sections(Input_code, Input_sections).
 ```
 
 
-And now we have to do that for every block.
+And now we have to do that for every section.
 
 ###### functions
 ```erlang
-expand_all_macros(Blocks) ->
-    expand_all_macros(Blocks, Blocks, []).
+expand_all_sections(Sections) ->
+    expand_all_sections(Sections, Sections, []).
 
-expand_all_macros([], _Blocks, Acc) ->
+expand_all_sections([], _Sections, Acc) ->
     lists:reverse(Acc);
 
-expand_all_macros([{Name, Code} | Rest], Blocks, Acc) ->
-    expand_all_macros(Rest, Blocks, [{Name, expand_macros(Code, Blocks)} | Acc]).
+expand_all_sections([{Name, Code} | Rest], Sections, Acc) ->
+    expand_all_sections(Rest, Sections, [{Name, expand_sections(Code, Sections)} | Acc]).
 ```
 
 
 ###### tests
 ```erlang
-expand_all_macros_test() ->
+expand_all_sections_test() ->
     Input = [{"first one", "First.\n\###### list of things"},
              {"second one", "This...\n-\###### list of things \######-\nis the second."},
              {"All the things!", "\###### first one \######\n* \###### second one \###### *\nDone."},
@@ -635,15 +635,15 @@ expand_all_macros_test() ->
                 {"All the things!", "First.\none\ntwo\n* This... *\n* -one- *\n* -two- *\n* is the second. *\nDone."},
                 {"list of things", "one\ntwo"}],
 
-    Expected = expand_all_macros(expand_all_macros(Input)).
+    Expected = expand_all_sections(expand_all_sections(Input)).
 ```
 
 
 #### Unescape Escaped Sequences
 
-If you're in a code block and need to use `######`, then you must escape it. As
-a final step in the processing of literate files, I will unescape the escaped
-H6s.
+If you're in a code section and need to use `######`, then you must escape it.
+As a final step in the processing of literate files, I will unescape the
+escaped H6s.
 
 The backslash is used in regex patterns, so we need to double up.
 
@@ -656,28 +656,28 @@ unescape(Code) ->
 ###### tests
 ```erlang
 unescape_test() ->
-    "foo\n    \###### not a macro\nbar" = unescape("foo\n    \\\###### not a macro\nbar"),
-    "- \\\###### really not a macro \\\###### -" = unescape("- \\\\\###### really not a macro \\\\\###### -"),
+    "foo\n    \###### not a section\nbar" = unescape("foo\n    \\\###### not a section\nbar"),
+    "- \\\###### really not a section \\\###### -" = unescape("- \\\\\###### really not a section \\\\\###### -"),
     "\###### h6 of another Markdown document \######" = unescape("\\\###### h6 of another Markdown document \\\######").
 ```
 
-And do it for all blocks.
+And do it for all sections.
 
 ###### functions
 ```erlang
-unescape_blocks(Blocks) ->
-    unescape_blocks(Blocks, []).
+unescape_sections(Sections) ->
+    unescape_sections(Sections, []).
 
-unescape_blocks([], Acc) ->
+unescape_sections([], Acc) ->
     lists:reverse(Acc);
 
-unescape_blocks([{Name, Code} | Rest], Acc) ->
-    unescape_blocks(Rest, [{Name, unescape(Code)} | Acc]).
+unescape_sections([{Name, Code} | Rest], Acc) ->
+    unescape_sections(Rest, [{Name, unescape(Code)} | Acc]).
 ```
 
 ###### tests
 ```erlang
-unescape_blocks_test() ->
+unescape_sections_test() ->
     Input = [{"foo", "\\\######"},
              {"bar", "bar"},
              {"baz", "\\\###### h6 of another Markdown document \\\######"}],
@@ -686,7 +686,7 @@ unescape_blocks_test() ->
                 {"bar", "bar"},
                 {"baz", "\###### h6 of another Markdown document \######"}],
 
-    Expected = unescape_blocks(Input).
+    Expected = unescape_sections(Input).
 ```
 
 ### Debugging
@@ -697,10 +697,10 @@ the file processing.
 The good thing about the functions I've already written is that they only take
 one argument for input, so it's pretty easy to pass in a string of text
 representing a partial document. However, I'll want to pass in a source file
-and just see what code blocks are detected.
+and just see what code sections are detected.
 
-First I'll need to read files in and output blocks of code in various stages of
-processing.
+First I'll need to read files in and output sections of code in various stages
+of processing.
 
 ###### debugging
 ```erlang
@@ -708,12 +708,12 @@ read_file(File_name) ->
     {ok, Binary} = file:read_file(File_name),
     binary_to_list(Binary).
 
-print_blocks(Blocks) ->
+print_sections(Sections) ->
     lists:foreach(fun ({Name, Code}) ->
                       io:format("~s~n-----~n~s~n-----~n~n",
                                 [Name, Code])
                   end,
-                  Blocks).
+                  Sections).
 ```
 
 And now we can print the various stages.
@@ -721,37 +721,37 @@ And now we can print the various stages.
 ###### debugging
 ```erlang
 print_code(File_name) ->
-    print_blocks(
+    print_sections(
         all_code(
             read_file(File_name))).
 
 print_unindented_code(File_name) ->
-    print_blocks(
-        unindent_blocks(
+    print_sections(
+        unindent_sections(
             all_code(
                 read_file(File_name)))).
 
 print_concatenated_code(File_name) ->
-    print_blocks(
-        concat_blocks(
-            unindent_blocks(
+    print_sections(
+        concat_sections(
+            unindent_sections(
                 all_code(
                     read_file(File_name))))).
 
 print_expanded_code(File_name) ->
-    print_blocks(
-        expand_all_macros(
-            concat_blocks(
-                unindent_blocks(
+    print_sections(
+        expand_all_sections(
+            concat_sections(
+                unindent_sections(
                     all_code(
                         read_file(File_name)))))).
 
 print_unescaped_code(File_name) ->
-    print_blocks(
-        unescape_blocks(
-            expand_all_macros(
-                concat_blocks(
-                    unindent_blocks(
+    print_sections(
+        unescape_sections(
+            expand_all_sections(
+                concat_sections(
+                    unindent_sections(
                         all_code(
                             read_file(File_name))))))).
 ```
@@ -760,55 +760,55 @@ print_unescaped_code(File_name) ->
 ### Writing Files
 
 The input is fully processed now. This program wouldn't be useful without we
-write some files. This is pretty simple because we only need to find the blocks
-with names prefixed with `file:`.
+write some files. This is pretty simple because we only need to find the
+sections with names prefixed with `file:`.
 
 ###### functions
 ```erlang
-file_blocks(Blocks) ->
-    file_blocks(Blocks, []).
+file_sections(Sections) ->
+    file_sections(Sections, []).
 
-file_blocks([], Acc) ->
+file_sections([], Acc) ->
     lists:reverse(Acc);
 
-file_blocks([{[$f, $i, $l, $e, $: | _] = Name, Code} | Rest], Acc) ->
-    file_blocks(Rest, [{Name, Code} | Acc]);
+file_sections([{[$f, $i, $l, $e, $: | _] = Name, Code} | Rest], Acc) ->
+    file_sections(Rest, [{Name, Code} | Acc]);
 
-file_blocks([_ | Rest], Acc) ->
-    file_blocks(Rest, Acc).
+file_sections([_ | Rest], Acc) ->
+    file_sections(Rest, Acc).
 ```
 
 ###### tests
 ```erlang
-file_blocks_test() ->
+file_sections_test() ->
     Input = [{"file:a", "a"},
              {"not a file", "not a file"},
              {"file:b", "b"}],
     Expected = [{"file:a", "a"},
                 {"file:b", "b"}],
-    Expected = file_blocks(Input).
+    Expected = file_sections(Input).
 ```
 
 Might want to debug it, too.
 
 ###### debugging
 ```erlang
-print_file_blocks(File_name) ->
-    print_blocks(
-        file_blocks(
-            unescape_blocks(
-                expand_all_macros(
-                    concat_blocks(
-                        unindent_blocks(
+print_file_sections(File_name) ->
+    print_sections(
+        file_sections(
+            unescape_sections(
+                expand_all_sections(
+                    concat_sections(
+                        unindent_sections(
                             all_code(
                                 read_file(File_name)))))))).
 ```
 
-Given file blocks, write them. The reason we're using a `Base_directory` for
+Given file sections, write them. The reason we're using a `Base_directory` for
 these functions is that the output files will be relative to the source file.
 This gives us another markup requirement:
 
-> File names given in `file:` blocks are relative to the source file.
+> File names given in `file:` sections are relative to the source file.
 
 ###### functions
 ```erlang
@@ -836,7 +836,7 @@ write_file_test() ->
 
 ### Putting it All Together
 
-`process_file` will do everything! For nested macro expansion, I arbitrarily
+`process_file` will do everything! For nested section expansion, I arbitrarily
 decided to do it four times. I'm not concerned about performance and it seems
 reasonable.
 
@@ -844,25 +844,25 @@ reasonable.
 ```erlang
 process_file(File_name) ->
     Base_directory = filename:dirname(File_name),
-    Concatenated_code = concat_blocks(
-                            unindent_blocks(
+    Concatenated_code = concat_sections(
+                            unindent_sections(
                                 all_code(
                                     read_file(File_name)))),
-    Expanded_code = expand_all_macros(
-                        expand_all_macros(
-                            expand_all_macros(
-                                expand_all_macros(Concatenated_code)))),
-    Files = file_blocks(
-                unescape_blocks(Expanded_code)),
+    Expanded_code = expand_all_sections(
+                        expand_all_sections(
+                            expand_all_sections(
+                                expand_all_sections(Concatenated_code)))),
+    Files = file_sections(
+                unescape_sections(Expanded_code)),
 
-    write_file_blocks(Base_directory, Files, []).
+    write_file_sections(Base_directory, Files, []).
 
-write_file_blocks(_Base_directory, [], Files_written) ->
+write_file_sections(_Base_directory, [], Files_written) ->
     lists:reverse(Files_written);
 
-write_file_blocks(Base_directory, [{[$f, $i, $l, $e, $: | File_name], Contents} | Rest], Files_written) ->
+write_file_sections(Base_directory, [{[$f, $i, $l, $e, $: | File_name], Contents} | Rest], Files_written) ->
     New_file = write_file(Base_directory, File_name, Contents),
-    write_file_blocks(Base_directory, Rest, [New_file | Files_written]).
+    write_file_sections(Base_directory, Rest, [New_file | Files_written]).
 ```
 
 ###### tests
@@ -957,7 +957,7 @@ main(["print_unindented_code", File]) -> print_unindented_code(File);
 main(["print_concatenated_code", File]) -> print_concatenated_code(File);
 main(["print_expanded_code", File]) -> print_expanded_code(File);
 main(["print_unescaped_code", File]) -> print_unescaped_code(File);
-main(["print_file_blocks", File]) -> print_file_blocks(File);
+main(["print_file_sections", File]) -> print_file_sections(File);
 
 ###### other escript entry points
 
@@ -997,7 +997,7 @@ code.
         knot print_concatenated_code [file]
         knot print_expanded_code [file]
         knot print_unescaped_code [file]
-        knot print_file_blocks [file]
+        knot print_file_sections[file]
 
     For more information about them, it's probably best to read the literate
     program.
@@ -1013,12 +1013,12 @@ code.
 
     Knot files are written in Markdown.
 
-    They will use the `\######`-style H6 to denote potential code blocks. If
-    the name of the block starts with `file:` then a file with that name will
+    They will use the `\######`-style H6 to denote potential code sections. If
+    the name of the section starts with `file:` then a file with that name will
     be written (relative to the source document).
 
-    Two types of code blocks are supported: indented code blocks (typical of
-    Markdown) and GitHub Flavored Markdown's fenced code blocks.
+    Two types of code sections are supported: indented code sections (typical
+    of Markdown) and GitHub Flavored Markdown's fenced code blocks.
 
     Code expansion also uses `\######`. As with other literate programming
     tools, indentation is maintained. However, there is a feature that I

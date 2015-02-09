@@ -33,12 +33,12 @@ write my own -- a strong recommendation for literate programming!
 
 Knot files are written in Markdown.
 
-They will use the `######`-style H6 to denote potential code blocks. If
-the name of the block starts with `file:` then a file with that name will
+They will use the `######`-style H6 to denote potential code sections. If
+the name of the section starts with `file:` then a file with that name will
 be written (relative to the source document).
 
-Two types of code blocks are supported: indented code blocks (typical of
-Markdown) and GitHub Flavored Markdown's fenced code blocks.
+Two types of code sections are supported: indented code sections (typical
+of Markdown) and GitHub Flavored Markdown's fenced code blocks.
 
 Code expansion also uses `######`. As with other literate programming
 tools, indentation is maintained. However, there is a feature that I
