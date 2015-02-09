@@ -1161,8 +1161,8 @@ modified_times_test() ->
 ```
 
 
-Now we can poll for changes. This function will take two different functions to
-perform work. One will be applied to each file and another for all files.
+Now we can poll for changes. This function will take a function to perform
+work. It will be passed a list of changed files.
 
 ###### functions
 ```erlang
