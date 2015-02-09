@@ -705,8 +705,13 @@ of processing.
 ###### debugging
 ```erlang
 read_file(File_name) ->
-    {ok, Binary} = file:read_file(File_name),
-    binary_to_list(Binary).
+    case file:read_file(File_name) of
+        {ok, Binary} ->
+            binary_to_list(Binary);
+        {error, Reason} ->
+            io:format("Failed to read file (~s): ~s~n", [File_name, Reason]),
+            error({read_file, File_name, Reason})
+    end.
 
 print_sections(Sections) ->
     lists:foreach(fun ({Name, Code}) ->
@@ -810,6 +815,10 @@ This gives us another markup requirement:
 
 > File names given in `file:` sections are relative to the source file.
 
+If the output directory doesn't exist, an error is printed but not raised. I
+don't want the watch command to shut down if an invalid output file is added to
+the document.
+
 ###### functions
 ```erlang
 file_name(Base_directory, File_name) ->
@@ -817,8 +826,13 @@ file_name(Base_directory, File_name) ->
 
 write_file(Base_directory, File_name, Contents) ->
     Fn = file_name(Base_directory, File_name),
-    ok = file:write_file(Fn, Contents),
-    Fn.
+    case file:write_file(Fn, Contents) of
+        ok -> Fn;
+        {error, Reason} ->
+            io:format("Error: Failed to write file (~s): ~s. "
+                      "(Knot doesn't create directories, so you may need to "
+                      "create one.)~n", [Fn, Reason])
+    end.
 ```
 
 ###### tests

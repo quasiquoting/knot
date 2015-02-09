@@ -66,8 +66,13 @@ main(Args) ->
     end.
 
 read_file(File_name) ->
-    {ok, Binary} = file:read_file(File_name),
-    binary_to_list(Binary).
+    case file:read_file(File_name) of
+        {ok, Binary} ->
+            binary_to_list(Binary);
+        {error, Reason} ->
+            io:format("Failed to read file (~s): ~s~n", [File_name, Reason]),
+            error({read_file, File_name, Reason})
+    end.
 
 print_sections(Sections) ->
     lists:foreach(fun ({Name, Code}) ->
@@ -302,8 +307,13 @@ file_name(Base_directory, File_name) ->
 
 write_file(Base_directory, File_name, Contents) ->
     Fn = file_name(Base_directory, File_name),
-    ok = file:write_file(Fn, Contents),
-    Fn.
+    case file:write_file(Fn, Contents) of
+        ok -> Fn;
+        {error, Reason} ->
+            io:format("Error: Failed to write file (~s): ~s. "
+                      "(Knot doesn't create directories, so you may need to "
+                      "create one.)~n", [Fn, Reason])
+    end.
 process_file(File_name) ->
     Base_directory = filename:dirname(File_name),
     Concatenated_code = concat_sections(
