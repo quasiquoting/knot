@@ -19,7 +19,6 @@
     I think literate programming is awesome, but I don't like that it's
     LaTeX-based because
 
-    1. It has to go through too many transformations to get to HTML.
     1. I would like to customize the HTML output more.
     1. It would facilitate sharing of my documents if the literate program were
        written in a markup supported by GitHub's READMEs.
@@ -59,15 +58,16 @@ This is the layout of the module.
 
 Unlike some other literate programming tools, we don't weave documentation
 together. So the first thing we need to do is divide up an input string into
-`code chunks`.
+`code sections`.
 
-We're going to need a few utility functions for collecting the code chunks.
+We're going to need a few utility functions for collecting the code sections.
 These `collect` functions will all return a two-tuple of the collected text and
 the rest of the input, i.e. `{"foo", "bar baz buzz"}`.
 
 #### collect_to_eol
 
-Splits the input up until the next line break.
+Splits the input up until the next line break. This will be used in operations
+on single lines.
 
 ###### functions
 ```erlang
@@ -95,7 +95,9 @@ collect_to_eol_test() ->
 
 #### collect_to_fence
 
-Splits the input up until the next line that starts with three backticks.
+Splits the input up until the next line that starts with three backticks. This
+will be used to identify to select code sections and ignore documentation
+sections.
 
 ###### functions
 ```erlang
@@ -122,7 +124,8 @@ collect_to_fence_test() ->
 
 #### collect_to_unindent
 
-Splits the input up until the next line that starts with non-white space.
+Splits the input up until the next line that starts with non-white space. This
+will find the end of indented code blocks.
 
 ###### functions
 ```erlang
