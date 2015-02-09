@@ -150,7 +150,7 @@ expand_macros(Code, Blocks, Acc) ->
             case proplists:get_value(Name, Blocks) of
                 undefined ->
                     io:format("Warning: code block named ~p not found.~n", [Name]),
-                    expand_macros(Rest, Blocks, [Line | Acc]);
+                    expand_macros(Rest, Blocks, [Prefix ++ Suffix| Acc]);
 
                 Code_to_insert ->
                     New_lines = re:split(Code_to_insert, "\n", [{return, list}]),
@@ -457,9 +457,10 @@ expand_macros_test() ->
                  "start\n"
                  "###### things\n"
                  "- ###### things ###### -\n"
+                 "    ###### unused\n"
                  "end\n",
     Input_blocks = [{"things", "one\ntwo"}],
-    Expected = "\nstart\none\ntwo\n- one -\n- two -\nend",
+    Expected = "\nstart\none\ntwo\n- one -\n- two -\n    \nend",
     Expected = expand_macros(Input_code, Input_blocks).
 expand_all_macros_test() ->
     Input = [{"first one", "First.\n###### list of things"},

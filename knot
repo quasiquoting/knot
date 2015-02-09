@@ -260,7 +260,7 @@ expand_macros(Code, Blocks, Acc) ->
             case proplists:get_value(Name, Blocks) of
                 undefined ->
                     io:format("Warning: code block named ~p not found.~n", [Name]),
-                    expand_macros(Rest, Blocks, [Line | Acc]);
+                    expand_macros(Rest, Blocks, [Prefix ++ Suffix| Acc]);
 
                 Code_to_insert ->
                     New_lines = re:split(Code_to_insert, "\n", [{return, list}]),
