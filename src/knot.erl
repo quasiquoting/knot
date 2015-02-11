@@ -30,75 +30,22 @@ collect_to_fence([$\n, $`, $`, $` | Rest], Acc) ->
 
 collect_to_fence([Char | Rest], Acc) ->
     collect_to_fence(Rest, [Char | Acc]).
-collect_to_unindent(Input) ->
-    collect_to_unindent(Input, "").
-
-collect_to_unindent("", Acc) ->
-    {lists:reverse(Acc), ""};
-
-collect_to_unindent([$\n | Rest], Acc) ->
-    case re:run(Rest, "^\\S") of
-        {match, _} ->
-            % Must put the line break back on to detect the next code section.
-            {lists:reverse(Acc), [$\n | Rest]};
-        nomatch ->
-            collect_to_unindent(Rest, [$\n | Acc])
-    end;
-
-collect_to_unindent([Char | Rest], Acc) ->
-    collect_to_unindent(Rest, [Char | Acc]).
-collect_code([$`, $`, $` | Rest]) ->
-    % There might be a syntax highlighting hint that we can ignore.
-    {_, Rest1} = collect_to_eol(Rest),
-    collect_to_fence(Rest1);
-
-collect_code(Input) ->
-    collect_to_unindent(Input).
 all_code(Input) ->
     all_code(Input, []).
 
 all_code("", Acc) ->
     lists:reverse(Acc);
 
-all_code([$\n, $#, $#, $#, $#, $#, $#, $  | Rest], Acc) ->
-    {Name, Rest1} = collect_to_eol(Rest),
-    {Code, Rest2} = collect_code(Rest1),
+all_code([$\n, $`, $`, $` | Rest], Acc) ->
+    {Attributes, Rest1} = collect_to_eol(Rest),
+    {match, [Name]} = re:run(Attributes,
+                             "name=\"(?<name>[^\"]+)\"",
+                             [{capture, [name], list}]),
+    {Code, Rest2} = collect_to_fence(Rest1),
     all_code(Rest2, [{Name, Code} | Acc]);
 
 all_code([_ | Rest], Acc) ->
     all_code(Rest, Acc).
-find_indentation("") ->
-    "";
-
-find_indentation(Code) ->
-    {Line, Rest} = collect_to_eol(Code),
-    case re:run(Line, "^(?<white>\\s*)\\S", [{capture, [white], list}]) of
-        {match, [White]} ->
-            White;
-        nomatch ->
-            find_indentation(Rest)
-    end.
-unindent(Code) ->
-    case find_indentation(Code) of
-        "" ->
-            Code;
-        Indentation ->
-            Pattern = [$^ | Indentation],
-            unindent(Code, Pattern, [])
-    end.
-
-unindent("", _Pattern, Lines) ->
-    string:join(lists:reverse(Lines), "\n");
-
-unindent(Code, Pattern, Lines) ->
-    {Line, Rest} = collect_to_eol(Code),
-    Unindented_line = re:replace(Line, Pattern, "", [{return, list}]),
-    unindent(Rest, Pattern, [Unindented_line | Lines]).
-unindent_sections(Sections) ->
-    lists:map(fun ({Name, Code}) ->
-                  {Name, unindent(Code)}
-              end,
-              Sections).
 concat_sections(Sections) ->
     Join_sections = fun (Key, Acc) ->
         Values = proplists:get_all_values(Key, Sections),
@@ -107,33 +54,43 @@ concat_sections(Sections) ->
     end,
 
     lists:foldr(Join_sections, [], proplists:get_keys(Sections)).
-collect_to_section_delimeter(Line) ->
-    collect_to_section_delimeter(Line, "").
+collect_to_replacement_open(Line) ->
+    collect_to_replacement_open(Line, "").
 
-collect_to_section_delimeter("", Acc) ->
+collect_to_replacement_open("", Acc) ->
     {lists:reverse(Acc), ""};
 
 % Ignores escaped delimeters.
-collect_to_section_delimeter([$\\, $#, $#, $#, $#, $#, $# | Rest], Acc) ->
-    collect_to_section_delimeter(Rest, [$#, $#, $#, $#, $#, $#, $\\ | Acc]);
+collect_to_replacement_open([$\\, $<, $< | Rest], Acc) ->
+    collect_to_replacement_open(Rest, [$<, $<, $\\ | Acc]);
 
-collect_to_section_delimeter([$#, $#, $#, $#, $#, $# | Rest], Acc) ->
+collect_to_replacement_open([$<, $< | Rest], Acc) ->
     {lists:reverse(Acc), Rest};
 
-collect_to_section_delimeter([Char | Rest], Acc) ->
-    collect_to_section_delimeter(Rest, [Char | Acc]).
+collect_to_replacement_open([Char | Rest], Acc) ->
+    collect_to_replacement_open(Rest, [Char | Acc]).
 split_section(Line) ->
-    case collect_to_section_delimeter(Line) of
+    case collect_to_replacement_open(Line) of
         {_, ""} ->
             % No section in this line.
             nil;
 
         {Prefix, Rest} ->
-            % Rest contains the section name and, potentially, another
-            % delimeter before the suffix.
-            {Padded_name, Suffix} = collect_to_section_delimeter(Rest),
+            % Rest contains the section name and the closing delimiter.
+            {Padded_name, Suffix} = collect_to_replacement_close(Rest),
             {string:strip(Padded_name), Prefix, Suffix}
     end.
+collect_to_replacement_close(Input) ->
+    collect_to_replacement_close(Input, []).
+
+collect_to_replacement_close("", Acc) ->
+    {lists:reverse(Acc), ""};
+
+collect_to_replacement_close([$>, $> | Rest], Acc) ->
+    {lists:reverse(Acc), Rest};
+
+collect_to_replacement_close([Char | Rest], Acc) ->
+    collect_to_replacement_close(Rest, [Char | Acc]).
 expand_sections(Code, Sections) ->
     expand_sections(Code, Sections, []).
 
@@ -167,7 +124,7 @@ expand_all_sections([], _Sections, Acc) ->
 expand_all_sections([{Name, Code} | Rest], Sections, Acc) ->
     expand_all_sections(Rest, Sections, [{Name, expand_sections(Code, Sections)} | Acc]).
 unescape(Code) ->
-    re:replace(Code, "\\\\######", "######", [global, {return, list}]).
+    re:replace(Code, "\\\\<<", "<<", [global, {return, list}]).
 unescape_sections(Sections) ->
     unescape_sections(Sections, []).
 
@@ -202,9 +159,8 @@ write_file(Base_directory, File_name, Contents) ->
 process_file(File_name) ->
     Base_directory = filename:dirname(File_name),
     Concatenated_code = concat_sections(
-                            unindent_sections(
-                                all_code(
-                                    read_file(File_name)))),
+                            all_code(
+                                read_file(File_name))),
     Expanded_code = expand_all_sections(
                         expand_all_sections(
                             expand_all_sections(
@@ -290,42 +246,37 @@ print_code(File_name) ->
 
 print_unindented_code(File_name) ->
     print_sections(
-        unindent_sections(
-            all_code(
-                read_file(File_name)))).
+        all_code(
+            read_file(File_name))).
 
 print_concatenated_code(File_name) ->
     print_sections(
         concat_sections(
-            unindent_sections(
-                all_code(
-                    read_file(File_name))))).
+            all_code(
+                read_file(File_name)))).
 
 print_expanded_code(File_name) ->
     print_sections(
         expand_all_sections(
             concat_sections(
-                unindent_sections(
-                    all_code(
-                        read_file(File_name)))))).
+                all_code(
+                    read_file(File_name))))).
 
 print_unescaped_code(File_name) ->
     print_sections(
         unescape_sections(
             expand_all_sections(
                 concat_sections(
-                    unindent_sections(
-                        all_code(
-                            read_file(File_name))))))).
+                    all_code(
+                        read_file(File_name)))))).
 print_file_sections(File_name) ->
     print_sections(
         file_sections(
             unescape_sections(
                 expand_all_sections(
                     concat_sections(
-                        unindent_sections(
-                            all_code(
-                                read_file(File_name)))))))).
+                        all_code(
+                            read_file(File_name))))))).
 
 -ifdef(TEST).
 collect_to_eol_test() ->
@@ -335,114 +286,46 @@ collect_to_eol_test() ->
 collect_to_fence_test() ->
     {"foobar", ""} = collect_to_fence("foobar"),
     {"my\ncode\nhere", "\nmore input"} = collect_to_fence("my\ncode\nhere\n```\nmore input").
-collect_to_unindent_test() ->
-    {"foobar", ""} = collect_to_unindent("foobar"),
-    {"    my\n    code\n    here\n", "\nmy documentation"} = collect_to_unindent("    my\n    code\n    here\n\nmy documentation").
-fenced_collect_code_test() ->
-    Input = "```erlang\n"
-            "\n"
-            "-module(foobar).\n"
-            "-compile(export_all).\n"
-            "\n"
-            "foo() ->\n"
-            "    ok.\n"
-            "```\n"
-            "\n"
-            "documentation\n",
-    Expected_section = "\n"
-                     "-module(foobar).\n"
-                     "-compile(export_all).\n"
-                     "\n"
-                     "foo() ->\n"
-                     "    ok.",
-    Expected_rest = "\n\ndocumentation\n",
-    {Expected_section, Expected_rest} = collect_code(Input).
-
-
-indented_collect_code_test() ->
-    Input = "\n"
-            "    -module(foobar).\n"
-            "    -compile(export_all).\n"
-            "\n"
-            "    foo() ->\n"
-            "        ok.\n"
-            "\n"
-            "documentation\n",
-    Expected_section = "\n"
-                     "    -module(foobar).\n"
-                     "    -compile(export_all).\n"
-                     "\n"
-                     "    foo() ->\n"
-                     "        ok.\n",
-    Expected_rest = "\ndocumentation\n",
-    {Expected_section, Expected_rest} = collect_code(Input).
 all_code_test() ->
     Input = "A sample document.\n"
             "\n"
-            "###### indented code section\n"
-            "\n"
-            "    Code 1, line 1.\n"
-            "    Code 1, line 2.\n"
+            "``` {.erlang name=\"section 1\"}\n"
+            "Code 1, line 1.\n"
+            "Code 1, line 2.\n"
+            "```\n"
             "\n"
             "More documentation.\n"
             "\n"
-            "###### fenced code section\n"
-            "```erlang\n"
+            "```{name=\"section 2\"}\n"
             "Code 2, line 1.\n"
             "Code 2, line 2.\n"
             "```\n"
             "\n"
             "End of sample document.\n",
 
-    Expected = [{"indented code section", "\n    Code 1, line 1.\n    Code 1, line 2.\n"},
-                {"fenced code section", "Code 2, line 1.\nCode 2, line 2."}],
+    Expected = [{"section 1", "Code 1, line 1.\nCode 1, line 2."},
+                {"section 2", "Code 2, line 1.\nCode 2, line 2."}],
 
     Expected = all_code(Input).
 
 all_code_no_intermediate_documentation_test() ->
     Input = "A sample document.\n"
             "\n"
-            "###### indented code section\n"
+            "``` {.fake name=\"section 1\"}\n"
             "\n"
-            "    Code 1, line 1.\n"
-            "    Code 1, line 2.\n"
-            "\n"
-            "###### another indented code section\n"
-            "    Code 2, line 1.\n"
-            "    Code 2, line 2.\n"
-            "\n"
+            "Code 1, line 1.\n"
+            "Code 1, line 2.\n"
+            "```\n"
+            "``` {.fake name=\"section 2\"}\n"
+            "Code 2, line 1.\n"
+            "Code 2, line 2.\n"
+            "```\n"
             "The end.\n",
 
-    Expected = [{"indented code section", "\n    Code 1, line 1.\n    Code 1, line 2.\n"},
-                {"another indented code section", "    Code 2, line 1.\n    Code 2, line 2.\n"}],
+    Expected = [{"section 1", "\nCode 1, line 1.\nCode 1, line 2."},
+                {"section 2", "Code 2, line 1.\nCode 2, line 2."}],
 
     Expected = all_code(Input).
-find_indentation_test() ->
-    "" = find_indentation(""),
-    "" = find_indentation("    \n\t  \n    \nsomething"),
-    "\t" = find_indentation("\n\n\tsomething\n\n"),
-    "    " = find_indentation("\n    something").
-unindent_four_spaces_test() ->
-    Input = "\n\n    foo() ->\n        ok.\n\n",
-    Expected = "\n\nfoo() ->\n    ok.\n",
-    Expected = unindent(Input).
-
-unindent_nothing_test() ->
-    Input = "\nfoo() ->\n    ok.\n",
-    Input = unindent(Input).
-
-unindent_tabs_test() ->
-    Input = "\n\tfoo() ->\n\t\tok.\n",
-    Expected = "\nfoo() ->\n\tok.",
-    Expected = unindent(Input).
-unindent_sections_test() ->
-    Input = [{"foo", "\tfoo() ->\n\t\tok."},
-             {"bar", "    foo() ->\n        ok."}],
-
-    Expected = [{"foo", "foo() ->\n\tok."},
-                {"bar", "foo() ->\n    ok."}],
-
-    Expected = unindent_sections(Input).
 concat_sections_test() ->
     Input = [{"foo", "FOO"},
              {"bar", "BAR"},
@@ -452,30 +335,32 @@ concat_sections_test() ->
                 {"bar", "BAR"}],
 
     Expected = concat_sections(Input).
-collect_to_section_delimeter_test() ->
-    {"foobar", ""} = collect_to_section_delimeter("foobar"),
-    {"    ", " my section"} = collect_to_section_delimeter("    ###### my section"),
-    {"- ", " my section ###### -"} = collect_to_section_delimeter("- ###### my section ###### -"),
-    {"my section ", " -"} = collect_to_section_delimeter("my section ###### -"),
-    {"\\###### not a section", ""} = collect_to_section_delimeter("\\###### not a section").
-section_test() ->
+collect_to_replacement_open_test() ->
+    {"foobar", ""} = collect_to_replacement_open("foobar"),
+    {"    ", "my replacement>>"} = collect_to_replacement_open("    <<my replacement>>"),
+    {"- ", "my replacement>> -"} = collect_to_replacement_open("- <<my replacement>> -"),
+    {"\\<<not a replacement>>", ""} = collect_to_replacement_open("\\<<not a replacement>>").
+split_section_test() ->
     nil = split_section("foobar"),
-    {"my section", "    ", ""} = split_section("    ###### my section"),
-    {"my section", "    <li>", "</li>"} = split_section("    <li>###### my section ######</li>").
+    {"my section", "    ", ""} = split_section("    <<my section>>"),
+    {"my section", "    <li>", "</li>"} = split_section("    <li><<my section>></li>").
+collect_to_replacement_close_test() ->
+    {"foobar", ""} = collect_to_replacement_close("foobar"),
+    {"my replacement", "..."} = collect_to_replacement_close("my replacement>>...").
 expand_sections_test() ->
     Input_code = "\n"
                  "start\n"
-                 "###### things\n"
-                 "- ###### things ###### -\n"
-                 "    ###### unused\n"
+                 "<< things >>\n"
+                 "- <<things>> -\n"
+                 "    <<unused>>\n"
                  "end\n",
     Input_sections= [{"things", "one\ntwo"}],
     Expected = "\nstart\none\ntwo\n- one -\n- two -\n    \nend",
     Expected = expand_sections(Input_code, Input_sections).
 expand_all_sections_test() ->
-    Input = [{"first one", "First.\n###### list of things"},
-             {"second one", "This...\n-###### list of things ######-\nis the second."},
-             {"All the things!", "###### first one ######\n* ###### second one ###### *\nDone."},
+    Input = [{"first one", "First.\n<<list of things>>"},
+             {"second one", "This...\n-<<list of things>>-\nis the second."},
+             {"All the things!", "<<first one>>\n* <<second one>> *\nDone."},
              {"list of things", "one\ntwo"}],
 
     Expected = [{"first one", "First.\none\ntwo"},
@@ -485,17 +370,14 @@ expand_all_sections_test() ->
 
     Expected = expand_all_sections(expand_all_sections(Input)).
 unescape_test() ->
-    "foo\n    ###### not a section\nbar" = unescape("foo\n    \\###### not a section\nbar"),
-    "- \\###### really not a section \\###### -" = unescape("- \\\\###### really not a section \\\\###### -"),
-    "###### h6 of another Markdown document ######" = unescape("\\###### h6 of another Markdown document \\######").
+    "foo\n    <<not a section>>\nbar" = unescape("foo\n    \\<<not a section>>\nbar"),
+    "- \\<< really not a section>> -" = unescape("- \\\\<< really not a section>> -").
 unescape_sections_test() ->
-    Input = [{"foo", "\\######"},
-             {"bar", "bar"},
-             {"baz", "\\###### h6 of another Markdown document \\######"}],
+    Input = [{"foo", "\\<<"},
+             {"bar", "bar"}],
 
-    Expected = [{"foo", "######"},
-                {"bar", "bar"},
-                {"baz", "###### h6 of another Markdown document ######"}],
+    Expected = [{"foo", "<<"},
+                {"bar", "bar"}],
 
     Expected = unescape_sections(Input).
 file_sections_test() ->
@@ -517,8 +399,8 @@ process_file_test() ->
     ["test_files/process_file_test.js"] = process_file("test_files/process_file_test.md"),
     Expected = read_file("test_files/process_file_test.js.expected_output"),
     Actual = read_file("test_files/process_file_test.js") ++ "\n",
-    % ?debugVal(Expected),
-    % ?debugVal(Actual),
+    %?debugVal(Expected),
+    %?debugVal(Actual),
     Expected = Actual,
     file:delete("test_files/process_file_test.js").
 process_files_test() ->

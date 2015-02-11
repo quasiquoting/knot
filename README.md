@@ -31,20 +31,20 @@ write my own -- a strong recommendation for literate programming!
 
 Knot files are written in Markdown.
 
-They will use the `######`-style H6 to denote potential code sections. If
-the name of the section starts with `file:` then a file with that name will
-be written (relative to the source document).
+They will use Pandoc style fenced code, i.e. ``` ```{name="foobar"} ```. If the
+name of the section starts with `file:` then a file with that name will be
+written (relative to the source document).
 
-Two types of code sections are supported: indented code sections (typical
-of Markdown) and GitHub Flavored Markdown's fenced code blocks.
+Two types of code sections are supported: indented code sections (typical of
+Markdown) and GitHub Flavored Markdown's fenced code blocks.
 
-Code expansion also uses `######`. As with other literate programming
-tools, indentation is maintained. However, there is a feature that I
-believe is unique to knot that will expand code with the line's prefix and
+Code expansion also uses `<<section name>>`. As with other literate
+programming tools, indentation is maintained. However, there is a feature that
+I believe is unique to knot that will expand code with the line's prefix and
 suffix.
 
-If you need to escape the `######` (as I have, since Knot is
-self-hosting), prefix it with a backslash, e.g. `\######`.
+If you need to escape the `<<` (as I have, since Knot is
+self-hosting), prefix it with a backslash, e.g. `\<<`.
 
 ### Example
 
@@ -52,26 +52,29 @@ A file like this:
 
     This is a simple literate program that outputs `my_file.txt`.
 
-    ###### file:my_file.txt
-        I am in my file.
+    ```{name="file:my_file.txt"}
+    I am in my file.
 
-        Some things:
+    Some things:
 
-        - ###### my things ###### -
+    - <<my things>> -
 
-        ###### footer
+    <<footer>>
+    ```
 
     My things are just three numbers.
 
-    ###### my things
-        one
-        two
-        three
+    ```{name="my things"}
+    one
+    two
+    three
+    ```
 
-    And the footer just shows the abbreviated style.
+    And the footer is just other content.
 
-    ###### footer
-        It tasted like a foot.
+    ```{name="footer"}
+    It tasted like a foot.
+    ```
 
 ...will output `my_file.txt` like this:
 
